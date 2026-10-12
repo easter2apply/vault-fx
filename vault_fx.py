@@ -38,6 +38,10 @@ MAX_OPEN_TRADES = 3          # never more than this many trades at once (one per
 MAX_LEVERAGE = 10            # cap a trade's size at 10× account value
 DAILY_LOSS_LIMIT = 0.03      # stop opening trades for the day after a 3% drop
 MAX_DRAWDOWN = 0.10          # pause the bot entirely after a 10% drop from the peak
+STREAK_HALF = 5              # after 5 losses in a row, trade half size
+STREAK_TIMEOUT = 7           # after 7 losses in a row, no new trades for 24 hours
+STREAK_TIMEOUT_HOURS = 24
+STREAK_RECOVER_WINS = 2      # back to full size after 2 wins
 STOP_ATR = 2.0               # stop loss = 2 × ATR from entry
 TARGET_ATR = 3.0             # take profit = 3 × ATR from entry (1.5 : 1 reward : risk)
 BREAKEVEN_AT_R = 1.0         # move the stop to entry once the trade is +1R
@@ -643,6 +647,9 @@ def run(log, full=True):
                 st["paused"] = "by you"; tg.say("⏸ Paused. I won't open new trades. Open trades keep their stops. /resume to restart.")
             elif cmd == "/resume":
                 st["paused"] = None; st["peak"] = nav; tg.say("▶️ Resumed. Back to normal trading.")
+                if st.get("streak", {}).get("until", 0) > time.time():
+                    st["streak"]["until"] = 0
+                    tg.say("🧊 Timeout ended early. Still trading at half size until 2 wins.")
                 feed_add(st, "event", "Resumed", who="Chair", text="You resumed trading. Back to normal.")
             elif cmd == "/closeall":
                 n = 0
@@ -743,6 +750,9 @@ def run(log, full=True):
         rec = st["record"]; rec["wins" if won else "losses"] += 1; rec["pl"] = round(rec["pl"] + pl, 2)
         score(st, meta.get("votes", {}), won, True)
         meta["r"] = round(pl / meta["risk"], 2) if meta.get("risk") else 0
+        for note_ in streak_update(st, meta["r"], now.timestamp()):
+            if tg:
+                tg.say(note_)
         feed_add(st, "event", f"{NAMES[meta['pair']]} closed", who="The Quant", ok=won,
                  text=f"{NAMES[meta['pair']]} {'BUY' if meta['dir'] == 1 else 'SELL'} closed {money(pl)} ({meta['r']:+.2f}R). "
                       f"Record {st['record']['wins']}W–{st['record']['losses']}L.")
@@ -865,6 +875,8 @@ def run(log, full=True):
             reasons = []
             if st.get("paused"):
                 reasons.append(f"paused ({st['paused']})")
+            if streak_status(st, now.timestamp()) == "timeout":
+                reasons.append(f"cooling off after {st['streak']['losses']} losses in a row")
             if st["day"].get("halted"):
                 reasons.append("daily loss limit hit")
             if pair in open_pairs:
@@ -930,7 +942,7 @@ def run(log, full=True):
             conv = usd_per_unit_move(pair, entry)
             if conv is None:
                 log.append(f"{pair}: can't size (needs USD in the pair)"); continue
-            risk_usd = nav * RISK_PCT
+            risk_usd = nav * RISK_PCT * (0.5 if streak_status(st, now.timestamp()) != "normal" else 1)
             units = int(risk_usd / (abs(entry - sl) * conv))
             cap = int(nav * MAX_LEVERAGE / max(notional_usd(pair, 1, entry), 1e-9))
             units = min(units, cap)
@@ -1165,6 +1177,49 @@ def learning_html(st):
 </section>"""
 
 
+# ───────────────────────────── Losing-streak breaker ─────────────────────────
+
+def streak_update(st, r_mult, ts):
+    """Count losses in a row. Half size at STREAK_HALF, a 24h timeout at STREAK_TIMEOUT, full size after wins."""
+    sk = st.setdefault("streak", {"losses": 0, "half": False, "wins_since": 0, "until": 0})
+    out = []
+    if abs(r_mult) < 0.1:
+        return out                                   # breakeven scratch: doesn't count either way
+    if r_mult > 0:
+        sk["losses"] = 0
+        if sk["half"]:
+            sk["wins_since"] += 1
+            if sk["wins_since"] >= STREAK_RECOVER_WINS:
+                sk.update(half=False, wins_since=0)
+                out.append(f"💪 {STREAK_RECOVER_WINS} wins since the slump. Back to full size ({RISK_PCT:.0%} per trade).")
+                feed_add(st, "event", "Back to full size", who="Risk", ok=True, text=out[-1][2:])
+        return out
+    sk["losses"] += 1
+    sk["wins_since"] = 0
+    n = sk["losses"]
+    if n == STREAK_HALF:
+        sk["half"] = True
+        out.append(f"⚠️ {n} losses in a row. Cutting trade size in half ({RISK_PCT / 2:.1%} per trade) until "
+                   f"{STREAK_RECOVER_WINS} wins. Streaks like this happen even when a strategy works; this keeps the damage small.")
+        feed_add(st, "event", "Half size", who="Risk", ok=False, text=out[-1][2:])
+    elif n >= STREAK_TIMEOUT and ts >= sk.get("until", 0):
+        sk["until"] = ts + STREAK_TIMEOUT_HOURS * 3600
+        sk["half"] = True
+        back = dt.datetime.fromtimestamp(sk["until"], LOCAL_TZ).strftime("%a %I:%M %p ET").replace(" 0", " ")
+        out.append(f"🧊 {n} losses in a row. Timeout: no new trades until {back}. Open trades keep their stops, "
+                   "and the council keeps voting on paper so it keeps learning. Comes back at half size. /resume to end it early.")
+        feed_add(st, "event", "Timeout", who="Risk", ok=False, text=out[-1][2:])
+    return out
+
+
+def streak_status(st, ts=None):
+    sk = st.get("streak") or {}
+    ts = ts or time.time()
+    if sk.get("until", 0) > ts:
+        return "timeout"
+    return "half" if sk.get("half") else "normal"
+
+
 # ───────────────────────────── Reports ───────────────────────────────────────
 
 def _learning_lines(st):
@@ -1211,6 +1266,11 @@ def daily_report(st, day, nav):
              "", "🧠 " + voters, "   " + bench]
     lines += ["   " + t.replace("🧠 ", "") for t in learned]
     lines += ["", "📰 Big news in the next 24h:", _upcoming(st, 24)]
+    ss = streak_status(st)
+    if ss != "normal":
+        sk = st.get("streak", {})
+        lines += ["", "🧊 Timeout after a losing streak, back " + dt.datetime.fromtimestamp(sk["until"], LOCAL_TZ).strftime("%a %I:%M %p ET")
+                  if ss == "timeout" else f"⚠️ Half size until {STREAK_RECOVER_WINS - sk.get('wins_since', 0)} more win(s)"]
     md = st.get("mood", {}).get(day, {})
     if md.get("happy") or md.get("unhappy"):
         lines += ["", f"🎖 Your feedback today: 🥂 {md.get('happy', 0)} happy · 👎 {md.get('unhappy', 0)} not happy"]
@@ -2500,6 +2560,7 @@ details {{ color:var(--muted) }} .fine {{ color:var(--muted); font-size:12px; ma
   <div class="stat"><span>Today</span><b class="{'pos' if (today or 0) >= 0 else 'neg'}">{m(today)}</b></div>
   <div class="stat"><span>Open P&amp;L</span><b class="{'pos' if acc.get('unrealized', 0) >= 0 else 'neg'}">{m(acc.get('unrealized'))}</b></div>
   <div class="stat"><span>Record</span><b>{rec['wins']}W–{rec['losses']}L</b></div>
+  <div class="stat"><span>Trade size</span><b class="{'neg' if streak_status(st) != 'normal' else ''}">{ {'normal': f'{RISK_PCT:.0%} risk', 'half': f'{RISK_PCT / 2:.1%} (half)', 'timeout': 'Timeout'}[streak_status(st)] }</b></div>
   <div class="stat"><span>Closed P&amp;L</span><b class="{'pos' if rec['pl'] >= 0 else 'neg'}">{m(rec['pl'])}</b></div>
 </div>
 {bankroll_chart(st)}
