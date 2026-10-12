@@ -30,7 +30,8 @@ import urllib.request
 from zoneinfo import ZoneInfo
 
 # ─────────────────────────── SETTINGS (edit these) ───────────────────────────
-PAIRS = ["EUR_USD", "USD_JPY", "XAU_USD"]
+PAIRS = ["EUR_USD", "GBP_USD", "AUD_USD", "USD_JPY", "USD_CAD", "USD_CHF", "XAU_USD"]
+MAX_SAME_DOLLAR_BETS = 2     # never more than 2 open trades betting the same way on the US dollar
 START_BALANCE = 100.00       # the bot trades as if the account holds this much (set to None to use the real OANDA balance)
 RISK_PCT = 0.01              # risk 1% of account value per trade (distance to stop × units)
 MAX_OPEN_TRADES = 3          # never more than this many trades at once (one per pair)
@@ -68,7 +69,8 @@ LOCAL_TZ = ZoneInfo("America/New_York")
 OANDA_ENV = os.environ.get("OANDA_ENV", "practice").strip().lower() or "practice"
 OANDA = ("https://api-fxtrade.oanda.com/v3" if OANDA_ENV == "live"
          else "https://api-fxpractice.oanda.com/v3")
-NAMES = {"EUR_USD": "EUR/USD", "USD_JPY": "USD/JPY", "XAU_USD": "Gold"}
+NAMES = {"EUR_USD": "EUR/USD", "GBP_USD": "GBP/USD", "AUD_USD": "AUD/USD", "USD_JPY": "USD/JPY",
+         "USD_CAD": "USD/CAD", "USD_CHF": "USD/CHF", "XAU_USD": "Gold"}
 VOTERS = ["The Quant", "Risk", "Momentum", "Time", "Doubt"]
 ROLES = {"The Quant": "trend strength (ADX)", "Risk": "spread, exposure and loss limits",
          "Momentum": "MACD agrees and is building", "Time": "not overextended, in session",
@@ -357,6 +359,11 @@ def news_label(e):
     return f"{e['cur']} {e['title']} ({dt.datetime.fromtimestamp(e['t'], LOCAL_TZ):%a %I:%M %p} ET)"
 
 
+def usd_direction(pair, d):
+    """+1 if the trade wins when the dollar rises, −1 if it wins when the dollar falls."""
+    return d if pair.startswith("USD_") else -d
+
+
 def pair_currencies(pair):
     return {c for c in pair.split("_") if c not in ("XAU", "XAG")} | ({"USD"} if pair.startswith("XA") else set())
 
@@ -559,7 +566,7 @@ def run(log, full=True):
                 st["_status_requested"] = True
         if not st.get("welcomed") and tg.chat():
             tg.say(f"✅ Vault FX is connected ({OANDA_ENV.upper()} account, trading a ${nav:,.2f} bankroll).\n\n"
-                   "I check EUR/USD, USD/JPY and Gold every 15 minutes and trade when the council approves.\n\n"
+                   f"I check {', '.join(NAMES[p] for p in PAIRS)} every 15 minutes and trade when the council approves.\n\n"
                    "Commands (I read them every 15 min):\n/status – account and open trades\n"
                    "/pause – stop opening new trades\n/resume – start again\n/closeall – close every open trade")
             st["welcomed"] = True
@@ -710,6 +717,9 @@ def run(log, full=True):
             reasons.append(f"{MAX_OPEN_TRADES} trades already open")
         if not p.get("tradeable", False):
             reasons.append("market closed")
+        same = sum(1 for m in st["trades"].values() if usd_direction(m["pair"], m["dir"]) == usd_direction(pair, a["trend"]))
+        if same >= MAX_SAME_DOLLAR_BETS:
+            reasons.append(f"already {same} trades betting the dollar goes {'up' if usd_direction(pair, a['trend']) == 1 else 'down'}")
         ts = now.timestamp()
         hit = next((e for e in news if e["cur"] in pair_currencies(pair)
                     and e["t"] - NEWS_BEFORE_MIN * 60 <= ts <= e["t"] + NEWS_AFTER_MIN * 60), None)
