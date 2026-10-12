@@ -32,7 +32,7 @@ from zoneinfo import ZoneInfo
 # ─────────────────────────── SETTINGS (edit these) ───────────────────────────
 PAIRS = ["EUR_USD", "GBP_USD", "AUD_USD", "USD_JPY", "USD_CAD", "USD_CHF", "XAU_USD"]
 MAX_SAME_DOLLAR_BETS = 2     # never more than 2 open trades betting the same way on the US dollar
-START_BALANCE = 100.00       # the bot trades as if the account holds this much (set to None to use the real OANDA balance)
+START_BALANCE = 500.00       # the bot trades as if the account holds this much (set to None to use the real OANDA balance)
 RISK_PCT = 0.01              # risk 1% of account value per trade (distance to stop × units)
 MAX_OPEN_TRADES = 3          # never more than this many trades at once (one per pair)
 MAX_LEVERAGE = 10            # cap a trade's size at 10× account value
@@ -43,8 +43,13 @@ TARGET_ATR = 3.0             # take profit = 3 × ATR from entry (1.5 : 1 reward
 BREAKEVEN_AT_R = 1.0         # move the stop to entry once the trade is +1R
 COUNCIL_MIN_YES = 4          # a trade needs 4 of 5 YES votes, and Risk must vote YES
 ADX_MIN = 22                 # The Quant wants a trend at least this strong
-MAX_SPREAD_ATR = 0.15        # Risk votes NO if the spread is over 15% of ATR
-TRADING_HOURS_UTC = (6, 20)  # London + New York sessions
+MAX_SPREAD_ATR = 0.15        # Risk votes NO if the spread is over 15% of ATR (1-hour setups)
+MAX_SPREAD_ATR_15M = 0.30    # 15-minute candles move less, so the spread allowance is wider
+TRADING_HOURS_UTC = (6, 20)  # London + New York sessions (2 AM – 4 PM ET)
+SESSION_HOURS_UTC = {        # pairs that also trade the Asian session; 20–23 UTC (around the 5 PM ET rollover) stays off
+    "USD_JPY": [(6, 20), (23, 24), (0, 6)],
+    "AUD_USD": [(6, 20), (23, 24), (0, 6)],
+}
 SHADOW_DAYS = 7              # rejected setups are scored for up to a week
 COUNCIL_MIN_SHARE = 0.75     # weighted YES share needed (equal weights: 4 of 5); learning shifts the weights
 
@@ -63,7 +68,8 @@ BENCH_MIN = 20               # a pair + setup combo is benched if its last 20 re
 REPORT_HOUR_ET = 17
 WEEKLY_DAY = 4               # weekly report on Friday (Mon=0)
 
-FULL_SCAN_MIN = 15           # full scan (new setups) every 15 min; 5-min triggers in between only manage open trades
+FULL_SCAN_MIN = 5            # check all pairs every 5 minutes (votes happen on each 15-min and 1-hour candle close)
+DEPLOY_EVERY_MIN = 14        # republish the dashboard at most ~4×/hour unless something happened (the live feed updates anyway)
 STATE_FILE = "fx_state.json"
 LOCAL_TZ = ZoneInfo("America/New_York")
 OANDA_ENV = os.environ.get("OANDA_ENV", "practice").strip().lower() or "practice"
@@ -257,7 +263,26 @@ def analyze(h1, h4):
     }
 
 
-def council(a, spread, risk_ok, risk_why, now_utc):
+def in_session(pair, now_utc):
+    """True when this pair may open new trades right now."""
+    wd, h = now_utc.weekday(), now_utc.hour
+    if wd == 5 or (wd == 4 and h >= 19) or (wd == 6 and h < 22):
+        return False                            # Friday late, Saturday, Sunday before the open
+    return any(lo <= h < hi for lo, hi in SESSION_HOURS_UTC.get(pair, [TRADING_HOURS_UTC]))
+
+
+def next_vote(now_utc):
+    """Next hourly candle close when at least one pair is in session (UTC datetime) and which pairs are."""
+    t = now_utc.replace(minute=(now_utc.minute // 15) * 15, second=0, microsecond=0) + dt.timedelta(minutes=15)
+    for _ in range(320):
+        live = [p for p in PAIRS if in_session(p, t)]
+        if live:
+            return t, live
+        t += dt.timedelta(minutes=15)
+    return t, []
+
+
+def council(a, spread, risk_ok, risk_why, now_utc, pair=None):
     d = a["trend"]
     v = {}
     adx = a["adx"] or 0
@@ -266,20 +291,20 @@ def council(a, spread, risk_ok, risk_why, now_utc):
     if not risk_ok:
         v["Risk"] = (False, risk_why)
     else:
-        ok = rs is not None and rs <= MAX_SPREAD_ATR
+        ok = rs is not None and rs <= a.get("spread_max", MAX_SPREAD_ATR)
         v["Risk"] = (ok, f"spread is {rs:.0%} of ATR" if rs is not None else "no ATR yet")
     m, mp = a["macd"], a["macd_prev"]
     mom_ok = (m > 0 and m >= mp) if d == 1 else (m < 0 and m <= mp)
     v["Momentum"] = (mom_ok, f"MACD {'building' if mom_ok else 'not confirming'} {'up' if d == 1 else 'down'}")
     r = a["rsi"] or 50
     rsi_ok = (45 <= r <= 70) if d == 1 else (30 <= r <= 55)
-    lo, hi = TRADING_HOURS_UTC
-    friday_late = now_utc.weekday() == 4 and now_utc.hour >= 19
-    in_session = lo <= now_utc.hour < hi and not friday_late
-    v["Time"] = (rsi_ok and in_session,
-                 f"RSI {r:.0f}" + ("" if rsi_ok else " (stretched)") + ("" if in_session else ", outside trading hours"))
+    open_now = in_session(pair, now_utc)
+    v["Time"] = (rsi_ok and open_now,
+                 f"RSI {r:.0f}" + ("" if rsi_ok else " (stretched)") + ("" if open_now else ", outside trading hours"))
     big = a["h4_trend"] == d and ((a["h4_close"] > a["h4_ema200"]) if d == 1 else (a["h4_close"] < a["h4_ema200"]))
-    v["Doubt"] = (big, f"4-hour trend {'agrees' if big else 'disagrees'}")
+    big = big and a.get("extra_trend", d) == d
+    lbl = a.get("htf_label", "4-hour trend")
+    v["Doubt"] = (big, f"{lbl} {('agree' if big else 'disagree') if 'and' in lbl else ('agrees' if big else 'disagrees')}")
     return v
 
 
@@ -310,9 +335,12 @@ def approved(votes, weights=None):
     return ys / (ys + ns) >= COUNCIL_MIN_SHARE - 1e-9
 
 
-def record_result(st, pair, setup, r_mult):
+def record_result(st, pair, setup, r_mult, approved_trade=False):
     """Track each pair + setup combo in R; bench combos that keep losing, un-bench them when they recover."""
     L = st.setdefault("learn", {})
+    oc = L.setdefault("outcomes", [])
+    oc.append({"t": time.time(), "approved": approved_trade, "r": round(r_mult, 3), "pair": pair, "setup": setup})
+    del oc[:-400]
     combo = f"{pair}:{setup}"
     xs = L.setdefault("combos", {}).setdefault(combo, [])
     xs.append(round(r_mult, 3))
@@ -536,7 +564,8 @@ def run(log, full=True):
     if START_BALANCE:
         # a virtual bankroll: starting amount + what this bot's own trades have made or lost
         if st.get("start_balance") != START_BALANCE:
-            st.update(start_balance=START_BALANCE, peak=START_BALANCE, day={})
+            st.update(start_balance=START_BALANCE, peak=START_BALANCE, day={}, equity=[],
+                      record={"wins": 0, "losses": 0, "pl": 0.0})     # new bankroll = fresh scorecard
         mine = [t for t in api.open_trades() if str(t["id"]) in st["trades"]]
         unreal = sum(float(t.get("unrealizedPL", 0)) for t in mine)
         bal = START_BALANCE + st["record"]["pl"]
@@ -576,8 +605,9 @@ def run(log, full=True):
                 st["_status_requested"] = True
         if not st.get("welcomed") and tg.chat():
             tg.say(f"✅ Vault FX is connected ({OANDA_ENV.upper()} account, trading a ${nav:,.2f} bankroll).\n\n"
-                   f"I check {', '.join(NAMES[p] for p in PAIRS)} every 15 minutes and trade when the council approves.\n\n"
-                   "Commands (I read them every 15 min):\n/status – account and open trades\n"
+                   f"I check {', '.join(NAMES[p] for p in PAIRS)} every 5 minutes. The council votes on every 15-minute and 1-hour candle, "
+                   "and I trade when it approves.\n\n"
+                   "Commands (I read them every 5 min):\n/status – account and open trades\n"
                    "/pause – stop opening new trades\n/resume – start again\n/closeall – close every open trade\n"
                    "/live – turn the live council debate on or off")
             st["welcomed"] = True
@@ -635,6 +665,7 @@ def run(log, full=True):
         won = pl > 0
         meta.update(pl=pl, closed=t.get("closeTime", now.isoformat())[:19], exit=float(t.get("averageClosePrice", 0) or 0))
         st["closed"].append(meta)
+        st["_changed"] = True
         rec = st["record"]; rec["wins" if won else "losses"] += 1; rec["pl"] = round(rec["pl"] + pl, 2)
         score(st, meta.get("votes", {}), won, True)
         meta["r"] = round(pl / meta["risk"], 2) if meta.get("risk") else 0
@@ -642,7 +673,7 @@ def run(log, full=True):
                  text=f"{NAMES[meta['pair']]} {'BUY' if meta['dir'] == 1 else 'SELL'} closed {money(pl)} ({meta['r']:+.2f}R). "
                       f"Record {st['record']['wins']}W–{st['record']['losses']}L.")
         meta["closed_ts"] = now.timestamp()
-        note = record_result(st, meta["pair"], meta.get("setup", "pullback"), meta["r"])
+        note = record_result(st, meta["pair"], meta.get("setup", "pullback"), meta["r"], approved_trade=True)
         if note and tg:
             tg.say(note)
         del st["trades"][tid]
@@ -674,17 +705,29 @@ def run(log, full=True):
         nav = bal + unreal
         st["account"].update(nav=nav, balance=bal, unrealized=unreal)
         st["peak"] = max(st.get("peak", nav), nav)
+    if full:
+        eq = st.setdefault("equity", [])
+        if not eq or now.timestamp() - eq[-1][0] >= 14 * 60:
+            eq.append([round(now.timestamp()), round(nav, 2)])
+        del eq[:-1500]                          # about two weeks at one point per 15 minutes
 
     # 3) council on each new 1-hour candle (full runs only)
     open_pairs = {m["pair"] for m in st["trades"].values()}
     for pair in (pairs if full else []):
         try:
-            h1, h4 = api.candles(pair, "H1", 300), api.candles(pair, "H4", 300)
+            h1, h4, m15 = api.candles(pair, "H1", 300), api.candles(pair, "H4", 300), api.candles(pair, "M15", 300)
         except ApiError as e:
             log.append(f"{pair}: no candles ({e})"); continue
         if len(h1) < 100 or len(h4) < 210:
             log.append(f"{pair}: not enough history yet"); continue
         a = analyze(h1, h4)
+        tfs = [("H1", a, h1)]
+        if len(m15) >= 210:
+            a15 = analyze(m15, h1)                 # 15-min setup, filtered by the 1-hour and the 4-hour trend
+            a15.update(extra_trend=a["h4_trend"], htf_label="1-hour and 4-hour trends", spread_max=MAX_SPREAD_ATR_15M)
+            if a15["setup"]:
+                a15["setup"] += " 15m"
+            tfs.append(("M15", a15, m15))
         p = prices.get(pair, {})
         bid = float(p["bids"][0]["price"]) if p.get("bids") else None
         ask = float(p["asks"][0]["price"]) if p.get("asks") else None
@@ -695,10 +738,24 @@ def run(log, full=True):
                              "atr_pips": pips(pair, a["atr"] or 0, inf), "spread_pips": pips(pair, spread, inf),
                              "close": a["close"], "prec": prec, "setup": a["setup"], "bar": a["time"],
                              "tradeable": bool(p.get("tradeable", False))}
+        best = None
+        for tf, at, _ in tfs:
+            if not at["atr"]:
+                continue
+            hyp = council(at, spread, True, "", now, pair)         # "if a setup appeared now, how would they vote?"
+            passed = sum(1 for o, _ in hyp.values() if o is True) + (1 if at["setup"] else 0)
+            waiting = [] if at["setup"] else ["a pullback to the trend line or a fresh crossover"]
+            waiting += [why for o, why in hyp.values() if o is False]
+            cand = {"passed": passed, "of": 6, "dir": at["trend"], "waiting": waiting[:2], "tf": tf,
+                    "in_trade": pair in open_pairs, "session": in_session(pair, now)}
+            if best is None or passed > best["passed"]:
+                best = cand
+        if best:
+            st["pairs"][pair]["ready"] = best
 
         # score rejected setups whose stop or target has been reached
         for sh in [s for s in st["shadow"] if s["pair"] == pair]:
-            later = [x for x in h1 if x["t"] > sh["bar"]]
+            later = [x for x in (m15 if sh.get("tf") == "M15" else h1) if x["t"] > sh["bar"]]
             hit = None
             for x in later:
                 hit_sl = (x["l"] <= sh["sl"]) if sh["dir"] == 1 else (x["h"] >= sh["sl"])
@@ -716,113 +773,116 @@ def run(log, full=True):
             elif age > SHADOW_DAYS:
                 st["shadow"].remove(sh)
 
-        if st["last_bar"].get(pair) == a["time"]:
-            continue                            # already decided on this candle
-        st["last_bar"][pair] = a["time"]
-        if not a["setup"] or not a["atr"]:
-            log.append(f"{pair}: no setup on the {a['time'][11:16]} UTC candle")
-            continue
+        for tf, a, _candles in tfs:
+            bar_key = pair if tf == "H1" else f"{pair}:{tf}"
+            if st["last_bar"].get(bar_key) == a["time"]:
+                continue                            # already decided on this candle
+            st["last_bar"][bar_key] = a["time"]
+            if not a["setup"] or not a["atr"]:
+                log.append(f"{pair}: no {'1-hour' if tf == 'H1' else '15-min'} setup on the {a['time'][11:16]} UTC candle")
+                continue
+            st["_changed"] = True
 
-        # risk gate
-        reasons = []
-        if st.get("paused"):
-            reasons.append(f"paused ({st['paused']})")
-        if st["day"].get("halted"):
-            reasons.append("daily loss limit hit")
-        if pair in open_pairs:
-            reasons.append("already in a trade on this pair")
-        if len(st["trades"]) >= MAX_OPEN_TRADES:
-            reasons.append(f"{MAX_OPEN_TRADES} trades already open")
-        if not p.get("tradeable", False):
-            reasons.append("market closed")
-        same = sum(1 for m in st["trades"].values() if usd_direction(m["pair"], m["dir"]) == usd_direction(pair, a["trend"]))
-        if same >= MAX_SAME_DOLLAR_BETS:
-            reasons.append(f"already {same} trades betting the dollar goes {'up' if usd_direction(pair, a['trend']) == 1 else 'down'}")
-        ts = now.timestamp()
-        hit = next((e for e in news if e["cur"] in pair_currencies(pair)
-                    and e["t"] - NEWS_BEFORE_MIN * 60 <= ts <= e["t"] + NEWS_AFTER_MIN * 60), None)
-        if hit:
-            reasons.append(f"news: {news_label(hit)}")
-        bench = st.get("learn", {}).get("benched", {}).get(f"{pair}:{a['setup']}")
-        if bench is not None:
-            reasons.append(f"benched: {a['setup']} setups on {NAMES[pair]} have been losing ({bench:+.2f}R)")
-        today["setups"] += 1
-        votes = council(a, spread, not reasons, "; ".join(reasons), now)
-        d = a["trend"]
-        entry = ask if d == 1 else bid
-        entry = entry or a["close"]
-        sl = entry - d * STOP_ATR * a["atr"]
-        tp = entry + d * TARGET_ATR * a["atr"]
-        yes, no = tally(votes)
-        ok = approved(votes, voter_weights(st))
-        label = f"{NAMES[pair]} {'BUY' if d == 1 else 'SELL'} ({a['setup']})"
-        st["last_vote"] = {"label": label, "side": "BUY" if d == 1 else "SELL", "approved": ok, "when": now.timestamp(),
-                           "url": f"https://www.oanda.com/", "ask": 0, "edge": 0,
-                           "detail": f"entry {fmt_price(entry, prec)} · stop {fmt_price(sl, prec)} · target {fmt_price(tp, prec)}",
-                           "votes": {n: [o, why] for n, (o, why) in votes.items()}}
-        plain_votes = {n: o for n, (o, _) in votes.items()}
-        vote_entry = feed_add(st, "vote", label,
-                         lines=[{"who": n, "vote": o, "say": say(n, o, why, a["time"] + pair)} for n, (o, why) in votes.items()],
-                         verdict=(f"APPROVED {yes}–{no}. Placing the trade." if ok else
-                                  f"REJECTED {yes}–{no}. Logged on paper so we learn whether we were right."), ok=ok)
-        if tg and st.get("live_tg") and not ok:
-            tg.say(transcript(vote_entry))      # approved trades already send their own message
-        vote_text = "\n".join(f"{'✅' if o else '❌' if o is False else '➖'} {n}: {why}" for n, (o, why) in votes.items())
+            # risk gate
+            reasons = []
+            if st.get("paused"):
+                reasons.append(f"paused ({st['paused']})")
+            if st["day"].get("halted"):
+                reasons.append("daily loss limit hit")
+            if pair in open_pairs:
+                reasons.append("already in a trade on this pair")
+            if len(st["trades"]) >= MAX_OPEN_TRADES:
+                reasons.append(f"{MAX_OPEN_TRADES} trades already open")
+            if not p.get("tradeable", False):
+                reasons.append("market closed")
+            same = sum(1 for m in st["trades"].values() if usd_direction(m["pair"], m["dir"]) == usd_direction(pair, a["trend"]))
+            if same >= MAX_SAME_DOLLAR_BETS:
+                reasons.append(f"already {same} trades betting the dollar goes {'up' if usd_direction(pair, a['trend']) == 1 else 'down'}")
+            ts = now.timestamp()
+            hit = next((e for e in news if e["cur"] in pair_currencies(pair)
+                        and e["t"] - NEWS_BEFORE_MIN * 60 <= ts <= e["t"] + NEWS_AFTER_MIN * 60), None)
+            if hit:
+                reasons.append(f"news: {news_label(hit)}")
+            bench = st.get("learn", {}).get("benched", {}).get(f"{pair}:{a['setup']}")
+            if bench is not None:
+                reasons.append(f"benched: {a['setup']} setups on {NAMES[pair]} have been losing ({bench:+.2f}R)")
+            today["setups"] += 1
+            votes = council(a, spread, not reasons, "; ".join(reasons), now, pair)
+            d = a["trend"]
+            entry = ask if d == 1 else bid
+            entry = entry or a["close"]
+            sl = entry - d * STOP_ATR * a["atr"]
+            tp = entry + d * TARGET_ATR * a["atr"]
+            yes, no = tally(votes)
+            ok = approved(votes, voter_weights(st))
+            label = f"{NAMES[pair]} {'BUY' if d == 1 else 'SELL'} ({a['setup']})"
+            st["last_vote"] = {"label": label, "side": "BUY" if d == 1 else "SELL", "approved": ok, "when": now.timestamp(),
+                               "url": f"https://www.oanda.com/", "ask": 0, "edge": 0,
+                               "detail": f"entry {fmt_price(entry, prec)} · stop {fmt_price(sl, prec)} · target {fmt_price(tp, prec)}",
+                               "votes": {n: [o, why] for n, (o, why) in votes.items()}}
+            plain_votes = {n: o for n, (o, _) in votes.items()}
+            vote_entry = feed_add(st, "vote", label,
+                             lines=[{"who": n, "vote": o, "say": say(n, o, why, a["time"] + pair)} for n, (o, why) in votes.items()],
+                             verdict=(f"APPROVED {yes}–{no}. Placing the trade." if ok else
+                                      f"REJECTED {yes}–{no}. Logged on paper so we learn whether we were right."), ok=ok)
+            if tg and st.get("live_tg") and not ok:
+                tg.say(transcript(vote_entry))      # approved trades already send their own message
+            vote_text = "\n".join(f"{'✅' if o else '❌' if o is False else '➖'} {n}: {why}" for n, (o, why) in votes.items())
 
-        if not ok:
-            today["rejected"] += 1
-            today["news"] += 1 if hit else 0
-            today["benched"] += 1 if bench is not None else 0
-            st["shadow"].append({"pair": pair, "dir": d, "bar": a["time"], "sl": sl, "tp": tp, "votes": plain_votes,
-                                 "setup": a["setup"]})
-            log.append(f"{pair}: council rejected {label} {yes}–{no}")
-            continue
+            if not ok:
+                today["rejected"] += 1
+                today["news"] += 1 if hit else 0
+                today["benched"] += 1 if bench is not None else 0
+                st["shadow"].append({"pair": pair, "dir": d, "bar": a["time"], "sl": sl, "tp": tp, "votes": plain_votes,
+                                     "setup": a["setup"], "tf": tf})
+                log.append(f"{pair}: council rejected {label} {yes}–{no}")
+                continue
 
-        # size the trade
-        conv = usd_per_unit_move(pair, entry)
-        if conv is None:
-            log.append(f"{pair}: can't size (needs USD in the pair)"); continue
-        risk_usd = nav * RISK_PCT
-        units = int(risk_usd / (abs(entry - sl) * conv))
-        cap = int(nav * MAX_LEVERAGE / max(notional_usd(pair, 1, entry), 1e-9))
-        units = min(units, cap)
-        if units < max(1, float(inf.get("minimumTradeSize", 1))):
-            log.append(f"{pair}: {label} skipped, the smallest allowed trade would risk more than {RISK_PCT:.0%} of a ${nav:,.0f} bankroll")
-            vote_entry["verdict"] = f"APPROVED {yes}–{no}, but skipped: the smallest {NAMES[pair]} trade would risk more than {RISK_PCT:.0%} of ${nav:,.0f}."
-            continue
-        try:
-            res = api.market_order(pair, d * units, fmt_price(sl, prec), fmt_price(tp, prec))
-        except ApiError as e:
-            log.append(f"{pair}: order rejected ({e})")
+            # size the trade
+            conv = usd_per_unit_move(pair, entry)
+            if conv is None:
+                log.append(f"{pair}: can't size (needs USD in the pair)"); continue
+            risk_usd = nav * RISK_PCT
+            units = int(risk_usd / (abs(entry - sl) * conv))
+            cap = int(nav * MAX_LEVERAGE / max(notional_usd(pair, 1, entry), 1e-9))
+            units = min(units, cap)
+            if units < max(1, float(inf.get("minimumTradeSize", 1))):
+                log.append(f"{pair}: {label} skipped, the smallest allowed trade would risk more than {RISK_PCT:.0%} of a ${nav:,.0f} bankroll")
+                vote_entry["verdict"] = f"APPROVED {yes}–{no}, but skipped: the smallest {NAMES[pair]} trade would risk more than {RISK_PCT:.0%} of ${nav:,.0f}."
+                continue
+            try:
+                res = api.market_order(pair, d * units, fmt_price(sl, prec), fmt_price(tp, prec))
+            except ApiError as e:
+                log.append(f"{pair}: order rejected ({e})")
+                if tg:
+                    tg.say(f"⚠️ OANDA rejected the {label} order: {e}")
+                continue
+            fill = res.get("orderFillTransaction") or {}
+            opened = fill.get("tradeOpened") or {}
+            if not opened:
+                reason = (res.get("orderCancelTransaction") or {}).get("reason", "unknown reason")
+                log.append(f"{pair}: order not filled ({reason})")
+                if tg:
+                    tg.say(f"⚠️ {label} wasn't filled: {reason}")
+                continue
+            fill_px = float(opened.get("price", fill.get("price", entry)))
+            vote_entry["verdict"] = (f"APPROVED {yes}–{no}. Filled {'BUY' if d == 1 else 'SELL'} {units:,} units at "
+                                         f"{fmt_price(fill_px, prec)}, stop {fmt_price(sl, prec)}, target {fmt_price(tp, prec)}.")
+            tid = str(opened["tradeID"])
+            st["trades"][tid] = {"pair": pair, "dir": d, "units": units, "entry": fill_px, "sl": sl, "tp": tp,
+                                 "opened": now.isoformat()[:19], "risk": round(risk_usd, 2), "votes": plain_votes,
+                                 "setup": a["setup"], "tf": tf, "price": fill_px, "upl": 0.0}
+            open_pairs.add(pair)
+            today["approved"] += 1
+            today["opened"] += 1
+            log.append(f"{pair}: OPENED {label}, {units} units")
             if tg:
-                tg.say(f"⚠️ OANDA rejected the {label} order: {e}")
-            continue
-        fill = res.get("orderFillTransaction") or {}
-        opened = fill.get("tradeOpened") or {}
-        if not opened:
-            reason = (res.get("orderCancelTransaction") or {}).get("reason", "unknown reason")
-            log.append(f"{pair}: order not filled ({reason})")
-            if tg:
-                tg.say(f"⚠️ {label} wasn't filled: {reason}")
-            continue
-        fill_px = float(opened.get("price", fill.get("price", entry)))
-        vote_entry["verdict"] = (f"APPROVED {yes}–{no}. Filled {'BUY' if d == 1 else 'SELL'} {units:,} units at "
-                                     f"{fmt_price(fill_px, prec)}, stop {fmt_price(sl, prec)}, target {fmt_price(tp, prec)}.")
-        tid = str(opened["tradeID"])
-        st["trades"][tid] = {"pair": pair, "dir": d, "units": units, "entry": fill_px, "sl": sl, "tp": tp,
-                             "opened": now.isoformat()[:19], "risk": round(risk_usd, 2), "votes": plain_votes,
-                             "setup": a["setup"], "price": fill_px, "upl": 0.0}
-        open_pairs.add(pair)
-        today["approved"] += 1
-        today["opened"] += 1
-        log.append(f"{pair}: OPENED {label}, {units} units")
-        if tg:
-            tg.say(f"{'🟢 BUY' if d == 1 else '🔴 SELL'} {NAMES[pair]} — {a['setup']}\n\n"
-                   f"Filled: {fmt_price(fill_px, prec)}  ·  {units:,} units\n"
-                   f"🛑 Stop: {fmt_price(sl, prec)} ({pips(pair, abs(fill_px - sl), inf):.0f} pips)\n"
-                   f"🎯 Target: {fmt_price(tp, prec)} ({pips(pair, abs(tp - fill_px), inf):.0f} pips)\n"
-                   f"Risk: ${risk_usd:,.2f} ({RISK_PCT:.0%} of the bankroll)\n\n"
-                   f"Council {yes}–{no}:\n{vote_text}")
+                tg.say(f"{'🟢 BUY' if d == 1 else '🔴 SELL'} {NAMES[pair]} — {a['setup']}\n\n"
+                       f"Filled: {fmt_price(fill_px, prec)}  ·  {units:,} units\n"
+                       f"🛑 Stop: {fmt_price(sl, prec)} ({pips(pair, abs(fill_px - sl), inf):.0f} pips)\n"
+                       f"🎯 Target: {fmt_price(tp, prec)} ({pips(pair, abs(tp - fill_px), inf):.0f} pips)\n"
+                       f"Risk: ${risk_usd:,.2f} ({RISK_PCT:.0%} of the bankroll)\n\n"
+                       f"Council {yes}–{no}:\n{vote_text}")
 
     if full and st.get("pairs"):
         notes, setups = [], 0
@@ -930,6 +990,54 @@ def transcript(entry):
     return "\n".join(out)
 
 
+# ───────────────────────────── Is it learning? ───────────────────────────────
+
+def _avg(xs):
+    return sum(xs) / len(xs) if xs else None
+
+
+def learning_card(st):
+    """The honest test: do the trades the council approves beat the ones it rejects, and is it improving?"""
+    oc = st.get("learn", {}).get("outcomes", [])
+    took = [o["r"] for o in oc if o["approved"]][-50:]
+    skip = [o["r"] for o in oc if not o["approved"]][-50:]
+    a_took, a_skip = _avg(took), _avg(skip)
+    recent, before = [o["r"] for o in oc if o["approved"]][-20:], [o["r"] for o in oc if o["approved"]][-40:-20]
+    if len(took) < 10 or len(skip) < 10:
+        verdict, cls = (f"Not enough results yet ({len(took)} trades, {len(skip)} rejected setups scored; "
+                        "the test needs 10 of each)."), "wait"
+    elif a_took > a_skip + 0.1:
+        verdict, cls = "The council is adding value: the trades it takes beat the ones it skips.", "good"
+    elif a_took > a_skip - 0.1:
+        verdict, cls = "No clear difference yet between what it takes and what it skips. Keep watching.", "wait"
+    else:
+        verdict, cls = "The council isn't helping right now: rejected setups are doing better than approved trades.", "bad"
+    trend = None
+    if len(recent) >= 10 and len(before) >= 10:
+        delta = _avg(recent) - _avg(before)
+        trend = (f"{'Improving' if delta > 0.05 else 'Slipping' if delta < -0.05 else 'Holding steady'}: "
+                 f"last {len(recent)} trades average {_avg(recent):+.2f}R vs {_avg(before):+.2f}R before")
+    return {"took": a_took, "skip": a_skip, "n_took": len(took), "n_skip": len(skip),
+            "win": (sum(1 for r in took if r > 0) / len(took)) if took else None,
+            "verdict": verdict, "cls": cls, "trend": trend}
+
+
+def learning_html(st):
+    c = learning_card(st)
+    f = lambda x: "—" if x is None else f"{x:+.2f}R"
+    return f"""<section class="learnwrap"><h2>Is it learning?</h2>
+  <p class="lv {c['cls']}">{html.escape(c['verdict'])}</p>
+  <div class="lgrid">
+    <div><span>Trades it took</span><b class="{'pos' if (c['took'] or 0) > 0 else 'neg' if c['took'] is not None else ''}">{f(c['took'])}</b><small>avg of {c['n_took']}</small></div>
+    <div><span>Setups it skipped</span><b>{f(c['skip'])}</b><small>avg of {c['n_skip']} (scored on paper)</small></div>
+    <div><span>Win rate</span><b>{'—' if c['win'] is None else f"{c['win']:.0%}"}</b><small>needs ~40% at 1.5R targets to profit</small></div>
+  </div>
+  {f'<p class="muted">{html.escape(c["trend"])}</p>' if c['trend'] else ''}
+  <p class="fine">R = profit measured in units of risk. +1.5R is a full win, −1R a full loss. The council earns its keep only if
+  "took" beats "skipped". Vote weights adapt after {LEARN_MIN_CALLS} scored calls, and losing pair + setup combos get benched.</p>
+</section>"""
+
+
 # ───────────────────────────── Reports ───────────────────────────────────────
 
 def _learning_lines(st):
@@ -1019,7 +1127,12 @@ def weekly_report(st, day, nav):
         lines.append(f"⭐ Sharpest voter: {ranked[0][0]} ({ranked[0][1]:.0%} of {ranked[0][2]})")
         if len(ranked) > 1:
             lines.append(f"🤔 Least reliable: {ranked[-1][0]} ({ranked[-1][1]:.0%} of {ranked[-1][2]})")
-    lines += ["🧠 " + voters, "   " + bench]
+    lc = learning_card(st)
+    lines += ["🧠 " + voters, "   " + bench, "   Is it learning? " + lc["verdict"]]
+    if lc["took"] is not None and lc["skip"] is not None:
+        lines.append(f"   Took {lc['took']:+.2f}R avg ({lc['n_took']}) vs skipped {lc['skip']:+.2f}R avg ({lc['n_skip']})")
+    if lc["trend"]:
+        lines.append("   " + lc["trend"])
     lines += ["   " + t.replace("🧠 ", "") for t in learned]
     lines += ["", f"All-time: {rec.get('wins', 0)}W–{rec.get('losses', 0)}L, {money(rec.get('pl', 0))}"]
     return "\n".join(lines)
@@ -1629,6 +1742,121 @@ FEED_JS = r"""
 """
 
 
+def next_panel(st):
+    now = dt.datetime.now(dt.timezone.utc)
+    t, live = next_vote(now)
+    when = t.astimezone(LOCAL_TZ).strftime("%I:%M %p").lstrip("0")
+    day = "" if t.astimezone(LOCAL_TZ).date() == now.astimezone(LOCAL_TZ).date() else t.astimezone(LOCAL_TZ).strftime(" %a")
+    rows = []
+    pairs = st.get("pairs", {})
+    def order(p):
+        r = pairs.get(p, {}).get("ready") or {}
+        return (not r.get("in_trade"), not r.get("session"), -(r.get("passed") or 0))
+    for p in sorted(PAIRS, key=order):
+        r = (pairs.get(p) or {}).get("ready")
+        if not r:
+            continue
+        side = "BUY" if r["dir"] == 1 else "SELL"
+        if r["in_trade"]:
+            note, cls = "In a trade. The council is managing it.", "trade"
+        elif not r["session"]:
+            note, cls = "Off-hours for this pair. It'll be judged when its session opens.", "off"
+        elif not r["waiting"]:
+            note, cls = "Everything lines up. Expect a vote at the next candle.", "hot"
+        else:
+            note = "Holding back: " + "; ".join(w if w.startswith(("a pullback", "a fresh")) else w for w in r["waiting"])
+            note = note.replace("Holding back: a pullback", "Needs a pullback")
+            cls = "warm" if r["passed"] >= 4 else ""
+        pct = round(100 * r["passed"] / r["of"])
+        rows.append(f"""<li class="{cls}"><div class="rl"><b>{NAMES[p]}</b><span class="bias {'buy' if r['dir'] == 1 else 'sell'}">{side} bias · {'15m' if r.get('tf') == 'M15' else '1h'}</span>
+          <span class="cnt">{r['passed']}/{r['of']} checks</span></div>
+          <div class="rbar" role="img" aria-label="{r['passed']} of {r['of']} checks pass"><i style="width:{pct}%"></i></div>
+          <p>{html.escape(note)}</p></li>""")
+    body = "".join(rows) or "<li><p>Readiness shows up after the first full scan.</p></li>"
+    return f"""<section class="nextwrap" aria-label="Next hearing">
+  <div class="nh"><div><h2>Next hearing</h2><p class="muted">{when}{day} ET candle · {len(live)} market{'s' if len(live) != 1 else ''} in session</p></div>
+  <div class="cd" id="cd" data-t="{int(t.timestamp())}">--:--</div></div>
+  <ol class="ready">{body}</ol>
+  <script>(function(){{var e=document.getElementById('cd'),t=+e.dataset.t;function f(){{var s=Math.max(0,Math.round(t-Date.now()/1000));
+  var h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;e.textContent=s?((h?h+':'+String(m).padStart(2,'0'):m)+':'+String(x).padStart(2,'0')):'voting now';}}f();setInterval(f,1000);}})();</script>
+</section>"""
+
+
+def bankroll_chart(st):
+    eq = st.get("equity", [])
+    start = START_BALANCE or (eq[0][1] if eq else 0)
+    if len(eq) < 2:
+        return f"""<section class="chartwrap"><h2>Bankroll</h2><p class="muted">The chart starts after the first couple of scans.
+          It tracks your ${start:,.0f} from here, with every closed trade marked.</p></section>"""
+    W, H, L, R, T, B = 640, 230, 52, 14, 14, 26
+    xs, ys = [e[0] for e in eq], [e[1] for e in eq]
+    x0, x1 = xs[0], max(xs[-1], xs[0] + 3600)
+    lo, hi = min(ys + [start]), max(ys + [start])
+    pad = max((hi - lo) * 0.15, start * 0.005)
+    lo, hi = lo - pad, hi + pad
+    X = lambda t: L + (t - x0) / (x1 - x0) * (W - L - R)
+    Y = lambda v: T + (hi - v) / (hi - lo) * (H - T - B)
+    pts = " ".join(f"{X(t):.1f},{Y(v):.1f}" for t, v in eq)
+    area = f"M{X(xs[0]):.1f},{Y(lo):.1f} L" + pts.replace(" ", " L") + f" L{X(xs[-1]):.1f},{Y(lo):.1f} Z"
+    grid = ""
+    for i in range(4):
+        v = lo + (hi - lo) * i / 3
+        grid += (f'<line x1="{L}" x2="{W - R}" y1="{Y(v):.1f}" y2="{Y(v):.1f}" class="gl"/>'
+                 f'<text x="{L - 8}" y="{Y(v) + 4:.1f}" class="yl">${v:,.2f}</text>')
+    fmt = lambda t: dt.datetime.fromtimestamp(t, LOCAL_TZ).strftime("%b %d %I:%M %p").replace(" 0", " ")
+    xl = (f'<text x="{L}" y="{H - 6}" class="xl">{fmt(x0)}</text>'
+          f'<text x="{W - R}" y="{H - 6}" class="xr">{fmt(xs[-1])}</text>')
+    base = (f'<line x1="{L}" x2="{W - R}" y1="{Y(start):.1f}" y2="{Y(start):.1f}" class="base"/>'
+            f'<text x="{W - R}" y="{Y(start) - 6:.1f}" class="bl">start ${start:,.0f}</text>')
+
+    def nav_at(t):
+        prev = eq[0]
+        for e in eq:
+            if e[0] >= t:
+                return e[1]
+            prev = e
+        return prev[1]
+    marks, mdata = "", []
+    for tr in st.get("closed", []):
+        t = tr.get("closed_ts")
+        if not t or t < x0:
+            continue
+        v, won = nav_at(t), tr.get("pl", 0) > 0
+        cx, cy = X(min(t, xs[-1])), Y(v)
+        shape = (f'<path d="M{cx:.1f},{cy - 6:.1f} L{cx + 6:.1f},{cy + 4:.1f} L{cx - 6:.1f},{cy + 4:.1f} Z" class="mk win"/>' if won else
+                 f'<path d="M{cx:.1f},{cy + 6:.1f} L{cx + 6:.1f},{cy - 4:.1f} L{cx - 6:.1f},{cy - 4:.1f} Z" class="mk loss"/>')
+        marks += shape
+        mdata.append([round(cx, 1), f"{NAMES.get(tr['pair'], tr['pair'])} {'BUY' if tr['dir'] == 1 else 'SELL'} {money(tr.get('pl', 0))}"])
+    last = ys[-1]
+    chg = last - start
+    data = json.dumps({"pts": [[round(X(t), 1), round(Y(v), 1), fmt(t), f"${v:,.2f}"] for t, v in eq], "marks": mdata})
+    return f"""<section class="chartwrap"><div class="chd"><h2>Bankroll</h2>
+  <span class="{'pos' if chg >= 0 else 'neg'}">${last:,.2f} ({money(chg)} since start)</span></div>
+  <div class="chart" id="bkchart">
+  <svg viewBox="0 0 {W} {H}" role="img" aria-label="Bankroll over time, from ${ys[0]:,.2f} to ${last:,.2f}">
+    <defs><linearGradient id="bkg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#4cb7ff" stop-opacity=".28"/>
+      <stop offset="1" stop-color="#4cb7ff" stop-opacity="0"/></linearGradient></defs>
+    {grid}{base}<path d="{area}" fill="url(#bkg)"/><polyline points="{pts}" class="ln"/>
+    <circle cx="{X(xs[-1]):.1f}" cy="{Y(last):.1f}" r="4.5" class="end"/>{marks}{xl}
+    <line id="bkx" class="cross" y1="{T}" y2="{H - B}" x1="-10" x2="-10"/><circle id="bkd" r="5" class="end" cx="-10" cy="-10"/>
+    <rect x="{L}" y="0" width="{W - L - R}" height="{H}" fill="#000" fill-opacity="0" pointer-events="all" id="bkhit"/>
+  </svg><div class="ctip" id="bktip" hidden></div></div>
+  <p class="muted legend"><span class="win">▲</span> winning trade closed · <span class="loss">▼</span> losing trade closed · dashed line = starting bankroll</p>
+  <script>(function(){{var D={data},svg=document.querySelector('#bkchart svg'),hit=document.getElementById('bkhit'),
+  x=document.getElementById('bkx'),d=document.getElementById('bkd'),tip=document.getElementById('bktip');
+  function mv(e){{var r=svg.getBoundingClientRect(),sx={W}/r.width,px=(e.clientX-r.left)*sx,b=D.pts[0];
+  D.pts.forEach(function(p){{if(Math.abs(p[0]-px)<Math.abs(b[0]-px))b=p;}});
+  x.setAttribute('x1',b[0]);x.setAttribute('x2',b[0]);d.setAttribute('cx',b[0]);d.setAttribute('cy',b[1]);
+  var m=D.marks.filter(function(k){{return Math.abs(k[0]-b[0])<10;}}).map(function(k){{return k[1];}});
+  tip.textContent='';var a=document.createElement('b');a.textContent=b[3];tip.appendChild(a);
+  var s=document.createElement('span');s.textContent=b[2]+' ET';tip.appendChild(s);
+  m.forEach(function(t){{var q=document.createElement('span');q.textContent=t;tip.appendChild(q);}});
+  tip.hidden=false;var left=b[0]/sx;tip.style.left=Math.min(Math.max(left-70,0),r.width-150)+'px';}}
+  function out(){{tip.hidden=true;x.setAttribute('x1',-10);x.setAttribute('x2',-10);d.setAttribute('cx',-10);}}
+  hit.addEventListener('pointermove',mv);hit.addEventListener('pointerdown',mv);hit.addEventListener('pointerleave',out);}})();</script>
+</section>"""
+
+
 def build_html(st, log):
     acc = st.get("account", {})
     nav = acc.get("nav")
@@ -1722,6 +1950,41 @@ td.mkt small {{ display:block; color:var(--muted); font-size:12px }}
 .side.buy {{ color:var(--buy) }} .side.sell {{ color:var(--sell) }}
 .empty {{ color:var(--muted); text-align:center; padding:22px }}
 .news {{ margin:0; padding-left:18px; display:grid; gap:4px }}
+.learnwrap {{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; display:grid; gap:10px }}
+.learnwrap h2 {{ margin:0 }} .learnwrap .fine {{ margin:0 }}
+.lv {{ margin:0; padding:8px 10px; border-radius:8px; border:1px solid var(--line) }}
+.lv.good {{ border-color:var(--pos); color:var(--pos) }} .lv.bad {{ border-color:var(--neg); color:var(--neg) }} .lv.wait {{ color:var(--accent) }}
+.lgrid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:8px }}
+.lgrid div {{ border:1px solid var(--line); border-radius:8px; padding:8px 10px; display:grid; gap:2px }}
+.lgrid span {{ font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted) }}
+.lgrid b {{ font-size:20px; font-variant-numeric:tabular-nums }} .lgrid small {{ color:var(--muted); font-size:11px }}
+.nextwrap, .chartwrap {{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; display:grid; gap:10px }}
+.nextwrap h2, .chartwrap h2 {{ margin:0 }}
+.nh {{ display:flex; justify-content:space-between; align-items:center; gap:12px }} .nh p {{ margin:4px 0 0; font-size:12px }}
+.cd {{ font:700 26px/1 ui-monospace,Menlo,monospace; color:var(--accent); font-variant-numeric:tabular-nums }}
+.ready {{ list-style:none; margin:0; padding:0; display:grid; gap:8px }}
+.ready li {{ border:1px solid var(--line); border-radius:8px; padding:9px 11px; display:grid; gap:6px }}
+.ready li.hot {{ border-color:var(--pos); background:#53f0a610 }} .ready li.warm {{ border-color:#f4c84a66 }}
+.ready li.trade {{ border-color:#4cb7ff88 }} .ready li.off {{ opacity:.55 }}
+.rl {{ display:flex; gap:8px; align-items:center; flex-wrap:wrap }} .rl .cnt {{ margin-left:auto; color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums }}
+.bias {{ font:700 10px/1 ui-monospace,Menlo,monospace; padding:3px 6px; border-radius:3px; border:1px solid currentColor }}
+.bias.buy {{ color:var(--buy) }} .bias.sell {{ color:var(--sell) }}
+.rbar {{ height:6px; border-radius:99px; background:var(--line); overflow:hidden }}
+.rbar i {{ display:block; height:100%; border-radius:99px; background:var(--accent) }}
+.ready li.hot .rbar i {{ background:var(--pos) }}
+.ready p {{ margin:0; font-size:12.5px; color:var(--muted) }}
+.chd {{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; flex-wrap:wrap }} .chd span {{ font-variant-numeric:tabular-nums; font-weight:600 }}
+.chart {{ position:relative }} .chart svg {{ width:100%; height:auto; display:block; touch-action:pan-y }}
+.chart .gl {{ stroke:var(--line); stroke-width:1 }} .chart .yl, .chart .xl {{ fill:var(--muted); font-size:11px; text-anchor:end; font-variant-numeric:tabular-nums }}
+.chart .xl {{ text-anchor:start }} .chart .xr {{ fill:var(--muted); font-size:11px; text-anchor:end }} .chart .base {{ stroke:var(--muted); stroke-dasharray:4 4; stroke-width:1 }}
+.chart .bl {{ fill:var(--muted); font-size:11px; text-anchor:end }}
+.chart .ln {{ fill:none; stroke:#4cb7ff; stroke-width:2; stroke-linejoin:round; stroke-linecap:round }}
+.chart .end {{ fill:#4cb7ff; stroke:var(--panel); stroke-width:2 }}
+.chart .mk {{ stroke:var(--panel); stroke-width:2 }} .chart .mk.win {{ fill:var(--pos) }} .chart .mk.loss {{ fill:var(--neg) }}
+.chart .cross {{ stroke:var(--muted); stroke-width:1 }}
+.ctip {{ position:absolute; top:6px; width:150px; background:#0f0c1dee; border:1px solid var(--line); border-radius:8px; padding:6px 9px;
+  display:grid; gap:2px; font-size:12px; pointer-events:none }} .ctip[hidden] {{ display:none }} .ctip b {{ font-variant-numeric:tabular-nums }} .ctip span {{ color:var(--muted) }}
+.legend {{ margin:0; font-size:12px }} .legend .win {{ color:var(--pos) }} .legend .loss {{ color:var(--neg) }}
 .feedwrap {{ background:linear-gradient(180deg,#1a1436,#120e24); border:1px solid var(--line); border-radius:12px; padding:14px; display:grid; gap:10px }}
 .feedhead {{ display:flex; justify-content:space-between; align-items:center; gap:10px }}
 .feedhead h2 {{ margin:0 }}
@@ -1808,9 +2071,10 @@ details {{ color:var(--muted) }} .fine {{ color:var(--muted); font-size:12px; ma
 @media (max-width:720px) {{ .nm {{ font-size:11px }} .acc {{ font-size:10px }}
   .roomhead {{ grid-template-columns:1fr; gap:10px }} .overall {{ border-right:0; padding-right:0; border-bottom:1px solid #4a3a85; padding-bottom:10px }} }}
 </style></head><body><div class="wrap">
-<header><div><h1>Vault FX</h1><p>Updated {updated} · trend following on 1-hour candles{f" · started with ${START_BALANCE:,.0f}" if START_BALANCE else ""}</p></div>
+<header><div><h1>Vault FX</h1><p>Updated {updated} · trend following on 15-minute and 1-hour candles{f" · started with ${START_BALANCE:,.0f}" if START_BALANCE else ""}</p></div>
   <div><span class="badge {mode.lower()}">{mode}</span> {f'<span class="badge paused">PAUSED · {html.escape(paused)}</span>' if paused else ''}</div></header>
 {council_room(st)}
+{next_panel(st)}
 {feed_panel(st)}
 <div class="stats">
   <div class="stat"><span>{'Bankroll' if START_BALANCE else 'Account value'}</span><b>{'—' if nav is None else f'${nav:,.2f}'}</b></div>
@@ -1819,13 +2083,15 @@ details {{ color:var(--muted) }} .fine {{ color:var(--muted); font-size:12px; ma
   <div class="stat"><span>Record</span><b>{rec['wins']}W–{rec['losses']}L</b></div>
   <div class="stat"><span>Closed P&amp;L</span><b class="{'pos' if rec['pl'] >= 0 else 'neg'}">{m(rec['pl'])}</b></div>
 </div>
+{bankroll_chart(st)}
 <section><h2>Markets</h2><div class="pairs">{''.join(pair_card(p) for p in PAIRS)}</div></section>
 <section><h2>Open trades</h2><div class="tbl"><table><tr><th>Pair</th><th>Side</th><th>Units</th><th>Entry</th><th>Now</th><th>Stop</th><th>Target</th><th>P&amp;L</th></tr>{open_rows}</table></div></section>
 <section><h2>Big news ahead</h2><ul class="news">{news_rows}</ul><p class="fine">No new trades from {NEWS_BEFORE_MIN} min before to {NEWS_AFTER_MIN} min after these.</p></section>
+{learning_html(st)}
 <section><h2>Who called it?</h2><p class="fine">{html.escape(learn_line)}</p><div class="tbl"><table><tr><th>Voter</th><th>Called it</th><th>Vote weight</th><th>Right / scored</th></tr>{board_rows}</table></div></section>
 <section><h2>Recent closed trades</h2><div class="tbl"><table><tr><th>Pair</th><th>Side</th><th>Units</th><th>Result</th></tr>{closed_rows}</table></div></section>
 <details><summary>Scan log</summary><ul>{''.join(f'<li>{html.escape(l)}</li>' for l in log)}</ul></details>
-<p class="fine">Strategy: the 1-hour EMA20/EMA50 trend sets the direction; a fresh crossover or a pullback to the EMA20 creates a setup.
+<p class="fine">Strategy: the EMA20/EMA50 trend on 1-hour or 15-minute candles sets the direction (15-minute setups must also agree with the 1-hour and 4-hour trends); a fresh crossover or a pullback to the EMA20 creates a setup.
 The council (Quant = ADX strength, Risk = spread/exposure/limits, Momentum = MACD, Time = RSI + trading hours, Doubt = 4-hour trend)
 must approve with Risk in favor (4 of 5 at equal weights; voters with better records count more once they have {LEARN_MIN_CALLS} scored calls).
 Pair + setup combos that average below 0R over their last {BENCH_MIN} results are benched until they recover. No new trades around high-impact news. Each trade risks {RISK_PCT:.0%} of the account with a stop at {STOP_ATR:g}× ATR and a target at {TARGET_ATR:g}× ATR;
@@ -1868,7 +2134,15 @@ def main():
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as f:
         f.write(build_html(st, log))
-    output(mode == "full")                      # republish the dashboard on full scans (Pages has hourly limits)
+    deploy = mode == "full" and (time.time() - st.get("last_deploy", 0) >= DEPLOY_EVERY_MIN * 60 or st.pop("_changed", False))
+    st.pop("_changed", None)
+    if deploy:
+        st["last_deploy"] = time.time()
+    try:
+        save_state(st)
+    except Exception:
+        pass
+    output(deploy)                              # GitHub Pages has hourly limits; the live feed refreshes on its own
 
 
 if __name__ == "__main__":
