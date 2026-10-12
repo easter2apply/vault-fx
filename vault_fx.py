@@ -67,6 +67,8 @@ NEWS_WARN_MIN = 30           # heads-up on Telegram when news is this close and 
 
 # Learning
 LEARN_MIN_CALLS = 20         # a voter's weight starts changing after 20 scored calls
+PROVEN_MIN = 6               # a pair + setup "theory" is proven after 6+ tests averaging +0.3R or better (party!)
+PROVEN_AVG = 0.3
 BENCH_MIN = 20               # a pair + setup combo is benched if its last 20 results average below 0R
 
 # Reports (Eastern time; forex's trading day ends at 5 PM ET)
@@ -391,6 +393,13 @@ def approved(votes, weights=None):
     return ys / (ys + ns) >= COUNCIL_MIN_SHARE - 1e-9
 
 
+def add_party(st, kind, title, detail):
+    """Something worked: the war room throws a little party the next time you open the dashboard."""
+    ps = st.setdefault("parties", [])
+    ps.append({"t": time.time(), "kind": kind, "title": title, "detail": detail})
+    del ps[:-10]
+
+
 def record_result(st, pair, setup, r_mult, approved_trade=False):
     """Track each pair + setup combo in R; bench combos that keep losing, un-bench them when they recover."""
     L = st.setdefault("learn", {})
@@ -401,6 +410,18 @@ def record_result(st, pair, setup, r_mult, approved_trade=False):
     xs = L.setdefault("combos", {}).setdefault(combo, [])
     xs.append(round(r_mult, 3))
     del xs[:-30]
+    proven = L.setdefault("proven", {})
+    tests = xs[-2 * PROVEN_MIN:]
+    if len(tests) >= PROVEN_MIN:
+        pavg = sum(tests) / len(tests)
+        if pavg >= PROVEN_AVG and combo not in proven:
+            proven[combo] = round(pavg, 2)
+            add_party(st, "proven", f"{setup} on {NAMES[pair]}",
+                      f"{pavg:+.2f}R average over its last {len(tests)} tests")
+            feed_add(st, "event", "Theory proven 🎉", who="The Quant",
+                     text=f"{setup} setups on {NAMES[pair]} average {pavg:+.2f}R over {len(tests)} tests. That one works.")
+        elif pavg < 0 and combo in proven:
+            proven.pop(combo)
     recent = xs[-BENCH_MIN:]
     if len(recent) < BENCH_MIN:
         return None
@@ -413,6 +434,7 @@ def record_result(st, pair, setup, r_mult, approved_trade=False):
                 f"Benching them. I'll keep scoring them on paper and bring them back if they recover.")
     elif avg >= 0.1 and combo in benched:
         benched.pop(combo)
+        add_party(st, "comeback", f"{setup} on {NAMES[pair]}", f"recovered to {avg:+.2f}R over the last {BENCH_MIN}")
         note = f"🧠 Learned: {NAMES[pair]} {setup} setups recovered ({avg:+.2f}R over the last {BENCH_MIN}). Back in the rotation."
     if note:
         L.setdefault("log", []).append({"t": time.time(), "text": note})
@@ -750,6 +772,9 @@ def run(log, full=True):
         rec = st["record"]; rec["wins" if won else "losses"] += 1; rec["pl"] = round(rec["pl"] + pl, 2)
         score(st, meta.get("votes", {}), won, True)
         meta["r"] = round(pl / meta["risk"], 2) if meta.get("risk") else 0
+        if won:
+            add_party(st, "win", f"{NAMES[meta['pair']]} {'BUY' if meta['dir'] == 1 else 'SELL'} won",
+                      f"{money(pl)} · {meta['r']:+.2f}R · {meta.get('setup', 'pullback')} theory worked")
         for note_ in streak_update(st, meta["r"], now.timestamp()):
             if tg:
                 tg.say(note_)
@@ -1375,6 +1400,113 @@ CHARACTERS = {
 }
 
 
+SOLO = {   # personality lines, mixed in with the live commentary below
+    "The Quant": ["Running the numbers again…", "Win rate times payoff. That's the whole game.", "I trust data, not feelings.",
+                  "Every skipped setup gets scored too. Keeps us honest."],
+    "Risk": ["Stops are set. Nobody panics.", "Protect the bankroll first, profits second.", "One bad trade won't sink us. Ten might.",
+             "1% risk per trade. No exceptions."],
+    "Momentum": ["Come on, somebody move!", "I can feel a breakout coming.", "The trend is my friend.", "Sitting still is killing me."],
+    "Time": ["Patience. The next candle decides.", "London open is my favorite hour.", "Good trades wait for good timing.",
+             "Tick, tock. Not yet."],
+    "Doubt": ["Hmm. Too quiet.", "What if we're all wrong?", "I'll believe it when it pays.", "Somebody check the news calendar."],
+}
+OFF_DUTY = {
+    "The Quant": ["Using the downtime to recheck last week's trades.", "Market's closed. Spreadsheets are open."],
+    "Risk": ["Nothing can hurt us while the market's closed. I love it.", "Off duty, but I'm still watching."],
+    "Momentum": ["Nothing moves on a closed market. I'm so bored.", "Anyone up for darts?"],
+    "Time": ["Back in session soon. Don't be late.", "Clocks don't sleep, even when markets do."],
+    "Doubt": ["Enjoy the quiet. Monday always surprises.", "Rest up. The open is never polite."],
+}
+
+
+def chatter(st):
+    """What each officer mutters while walking around, plus little two-person conversations, from live state."""
+    lines = {n: [] for n in VOTERS}
+    dialogs = []
+    acc = st.get("account", {})
+    nav, rec = acc.get("nav"), st.get("record", {"wins": 0, "losses": 0, "pl": 0.0})
+    recess = st.get("recess")
+    trades = list(st.get("trades", {}).values())
+    for t in trades[:3]:
+        nm, side, upl = NAMES.get(t["pair"], t["pair"]), "BUY" if t["dir"] == 1 else "SELL", t.get("upl", 0) or 0
+        lines["The Quant"].append(f"{nm} {side} is {money(upl)} so far.")
+        if t.get("breakeven"):
+            lines["Risk"].append(f"{nm} can't lose now. Stop's at entry.")
+        else:
+            lines["Risk"].append(f"Watching the {nm} stop like a hawk.")
+        if upl >= 0:
+            dialogs.append(["Momentum", f"{nm} is running our way!", "Risk", "Don't celebrate yet. Let it hit the target."])
+        else:
+            dialogs.append(["Doubt", f"{nm} is under water.", "The Quant", "One trade. The edge shows up over many."])
+    if not trades and not recess:
+        lines["Momentum"].append("No trades open. My feet are itching.")
+    if nav is not None:
+        lines["The Quant"].append(f"Bankroll's at {money(nav)}.")
+    day = st.get("day", {})
+    if nav is not None and day.get("start_nav") is not None:
+        lines["The Quant"].append(f"Today we're {money(nav - day['start_nav'])}.")
+    if rec["wins"] + rec["losses"]:
+        lines["Doubt"].append(f"{rec['wins']}W–{rec['losses']}L so far. Let's see if it holds.")
+        dialogs.append(["The Quant", f"We're {rec['wins']}W–{rec['losses']}L.", "Risk", "And the bankroll's still protected. That's what matters."])
+    ss = streak_status(st)
+    if ss == "half":
+        lines["Risk"].append("Half size until we string two wins together.")
+    elif ss == "timeout":
+        lines["Risk"].append("Timeout. Nobody trades until I say so.")
+        dialogs.append(["Momentum", "Can we trade yet?", "Risk", "No. Losing streak timeout. Cool off."])
+    for p in PAIRS:
+        r = (st.get("pairs", {}).get(p) or {}).get("ready")
+        if not r or r.get("in_trade") or not r.get("session"):
+            continue
+        side = "BUY" if r["dir"] == 1 else "SELL"
+        if not r.get("waiting"):
+            lines["Time"].append(f"{NAMES[p]} could get a vote at the next candle.")
+            dialogs.append(["Momentum", f"{NAMES[p]} is lining up for a {side}!", "Doubt", "Or it fakes us out again. We'll see."])
+        elif r.get("passed", 0) >= r.get("of", 9) - 2:
+            lines["Momentum"].append(f"{NAMES[p]} is close: {r['passed']}/{r['of']} checks for a {side}.")
+    now = time.time()
+    news = [e for e in st.get("news", {}).get("events", []) if now <= e["t"] <= now + 4 * 3600]
+    if news:
+        e = news[0]
+        when = dt.datetime.fromtimestamp(e["t"], LOCAL_TZ).strftime("%I:%M %p").lstrip("0")
+        lines["Risk"].append(f"Heads up: {e['cur']} {e['title']} at {when}. No new trades around it.")
+        dialogs.append(["Time", f"{e['cur']} {e['title']} lands at {when}.", "Risk", "Then we sit on our hands until it passes."])
+    lv = st.get("last_vote")
+    if lv:
+        for n, (ok, why) in (lv.get("votes") or {}).items():
+            if n in lines and ok is not None:
+                lines[n].append(f"I voted {'YES' if ok else 'NO'} on {lv.get('label', 'the last one')}: {why}.")
+    board = st.get("scoreboard", {})
+    for n in VOTERS:
+        b = board.get(n, {})
+        if b.get("total", 0) >= 5:
+            lines[n].append(f"I've called {b['right'] / b['total']:.0%} of my votes right.")
+    L = st.get("learn", {})
+    for combo in list(L.get("benched", {}))[:2]:
+        pr, stp = combo.split(":", 1)
+        lines["Doubt"].append(f"Told you {stp} on {NAMES.get(pr, pr)} was trouble. It's benched.")
+    for combo, avg in list(L.get("proven", {}).items())[:2]:
+        pr, stp = combo.split(":", 1)
+        lines["The Quant"].append(f"{stp} on {NAMES.get(pr, pr)} is a proven theory ({avg:+.2f}R).")
+        dialogs.append(["Momentum", f"{stp} on {NAMES.get(pr, pr)} keeps paying!", "The Quant", f"{avg:+.2f}R average. The data agrees."])
+    dialogs += [
+        ["Doubt", "What if the market changed and our rules didn't?", "The Quant", "That's why we score every setup we skip."],
+        ["Momentum", "Can we just trade something?", "Time", "Not until the setup's there. Patience pays."],
+        ["Risk", "Remember: 1% per trade.", "Momentum", "Yeah, yeah. Boring, but alive."],
+        ["Time", "Next candle's coming up.", "Doubt", "And probably nothing again. That's fine."],
+        ["The Quant", "Our rejected setups get scored too.", "Doubt", "Good. Keeps us honest."],
+    ]
+    if recess:
+        for n in VOTERS:
+            lines[n] = OFF_DUTY[n] + lines[n][:1]
+        dialogs = [["Momentum", "Anyone up for darts while the market's closed?", "Time", f"Sure. Court {recess}. Don't be late."],
+                   ["The Quant", "Want to review last week?", "Doubt", "Only if we're honest about the losers."],
+                   ["Risk", "Closed market, zero risk.", "Momentum", "Zero fun, too."]] + dialogs[:2]
+    for n in VOTERS:
+        lines[n] += SOLO[n]
+    return lines, dialogs
+
+
 def council_room(state):
     lv = state.get("last_vote")
     board = state.get("scoreboard", {})
@@ -1409,9 +1541,17 @@ def council_room(state):
     else:
         docket = "<span>No trade on the table yet.</span><small>The council votes when a market clears your minimum edge.</small>"
         stamp = ""
+    talk, dialogs = chatter(state)
+    try:
+        nv = int(next_vote(dt.datetime.now(dt.timezone.utc))[0].timestamp())
+    except Exception:
+        nv = 0
     data = json.dumps({"voters": voters, "verdict": verdict, "approved": bool(lv and lv["approved"]),
                        "title": (lv or {}).get("label"), "chart": (lv or {}).get("chart"),
-                       "ticker": state.get("ticker", []), "recess": state.get("recess")})
+                       "ticker": state.get("ticker", []), "recess": state.get("recess"),
+                       "chatter": talk, "dialogs": dialogs, "lastVoteT": int(lv["when"]) if lv else 0,
+                       "nextVote": nv, "scanT": int(state.get("last_run") or time.time()),
+                       "parties": [p_ for p_ in state.get("parties", []) if time.time() - p_["t"] < 172800][-3:]})
     script = ROOM_JS.replace("__DATA__", data.replace("</", "<\\/"))
     return f"""<section class="room" id="room3d" aria-label="Council room">
   <div class="roomhead">
@@ -1433,7 +1573,9 @@ def council_room(state):
     <span class="mood-msg" id="moodmsg" aria-live="polite"></span>
   </div>
   {f'<p class="mood-tg">Want it on the record? <a href="https://t.me/{state["bot_username"]}?start=happy" target="_blank" rel="noopener">Send 🥂 to the bot</a> · <a href="https://t.me/{state["bot_username"]}?start=unhappy" target="_blank" rel="noopener">send 👎</a></p>' if state.get("bot_username") else ''}
-  <p class="hint">Each member walks to the speaking ring to cast a vote, then The Chair rules. Tap a member to read their reasoning. Drag to look around.</p>
+  <div class="roomctl"><button type="button" id="callOrder">📣 Call to order</button>
+    <button type="button" id="partyBtn" hidden>🎉 Replay party</button></div>
+  <p class="hint">Between votes the officers mingle and talk. When a vote is about a minute away they take their seats, and when a theory is proven they throw a party. Tap an officer to read their last vote. Drag to look around.</p>
   <script>(function(){{var msg=document.getElementById('moodmsg'),room=document.getElementById('room3d'),busy=0;
     var lines={{cheers:['🥂 Cheers, Commander! The council raises a glass.','🥂 To the next one!','🥂 Hooah! Drinks are on The Quant.'],
                sad:['😔 Understood, Commander. We’ll tighten up.','😔 Heard. Back to the drawing board.','😔 Noted. Discipline over hope.']}};
@@ -1863,14 +2005,6 @@ ROOM_JS = r"""
   confG.setAttribute('position', new THREE.BufferAttribute(cp, 3)); confG.setAttribute('color', new THREE.BufferAttribute(cc, 3));
   var confetti = new THREE.Points(confG, new THREE.PointsMaterial({ size: 0.07, vertexColors: true, transparent: true, depthWrite: false }));
   world.add(confetti);
-  function burst() {
-    for (var b = 0; b < confN; b++) {
-      cp[b * 3] = (Math.random() - 0.5) * 1.2; cp[b * 3 + 1] = 2.6 + Math.random() * 0.4; cp[b * 3 + 2] = -0.6 + (Math.random() - 0.5) * 1.2;
-      var a = Math.random() * Math.PI * 2, sp_ = 1.2 + Math.random() * 2.4;
-      cv[b] = [Math.cos(a) * sp_, 2 + Math.random() * 3, Math.sin(a) * sp_];
-    }
-    confG.attributes.position.needsUpdate = true;
-  }
   var react = null, REACT_LEN = 5.0;
   window.councilReact = function (kind) { react = { kind: kind, t: performance.now() / 1000, burst: false }; };
   var cheerLight = new THREE.PointLight(0xf6d36b, 0, 10, 2); cheerLight.position.set(0, 2.6, -0.6); scene.add(cheerLight);
@@ -1894,6 +2028,280 @@ ROOM_JS = r"""
     return pts[pts.length - 1].clone();
   }
   people.forEach(function (g) { g.userData.out = pathFor(g.userData, false); g.userData.back = pathFor(g.userData, true); });
+
+  // ── life between votes: mingling, chit-chat bubbles, assembling, and parties
+  var t0 = performance.now(), lastT = 0;
+  var nowS = function () { return Date.now() / 1000; };
+  function sget(k, ses) { try { return (ses ? sessionStorage : localStorage).getItem(k); } catch (e) { return null; } }
+  function sset(k, v, ses) { try { (ses ? sessionStorage : localStorage).setItem(k, v); } catch (e) {} }
+  function sdel(k, ses) { try { (ses ? sessionStorage : localStorage).removeItem(k); } catch (e) {} }
+  var SPEED = 1.1, TC = new THREE.Vector3(0, 0, 1.0), PARTY_C = new THREE.Vector3(0, 0, 3.05);
+  var SPOTS = [[-3.0, 2.6], [-1.6, 3.1], [0, 3.3], [1.6, 3.1], [3.0, 2.6], [-3.4, 0.9], [3.4, 0.9], [-1.7, -0.9], [1.7, -0.9],
+               [-3.7, -0.3], [3.7, -0.3], [2.4, 2.1], [-2.4, 2.1], [0, -0.85]].map(function (a) { return new THREE.Vector3(a[0], 0, a[1]); });
+  function rnd(a) { return a[Math.floor(Math.random() * a.length)]; }
+  function route(a, b) {
+    var pts = [], ab = b.clone().sub(a), L2 = ab.lengthSq();
+    var k = L2 ? Math.max(0, Math.min(1, TC.clone().sub(a).dot(ab) / L2)) : 0;
+    var cl = a.clone().add(ab.clone().multiplyScalar(k)), off = cl.clone().sub(TC); off.y = 0;
+    if (off.length() < 1.4 && k > 0.02 && k < 0.98) {
+      if (off.length() < 1e-3) off.set(a.x >= 0 ? 1 : -1, 0, 0);
+      pts.push(TC.clone().add(off.normalize().multiplyScalar(1.8)));
+    }
+    pts.push(b.clone()); return pts;
+  }
+  people.forEach(function (g) { var u = g.userData; u.pos = u.seat.clone(); u.sit = 1; u.route = []; u.wantSit = true; u.face = u.faceSeat; u.task = null; u.talkUntil = 0; u.used = {}; });
+  function goTo(u, dest, face) { u.route = route(u.pos, dest); u.face = face; u.wantSit = false; }
+  function goSeat(u) { u.route = route(u.pos, u.seat); u.face = u.faceSeat; u.wantSit = true; }
+  function seated(g) { var u = g.userData; return !u.route.length && u.wantSit && u.sit > 0.95; }
+  function lineFor(name, pool) {
+    var xs = (pool || D.chatter || {})[name] || [], u = people[D.voters.findIndex(function (v) { return v.name === name; })].userData;
+    if (!xs.length) return null;
+    var fresh = xs.filter(function (l) { return !u.used[l]; });
+    if (!fresh.length) { u.used = {}; fresh = xs; }
+    var l = rnd(fresh); u.used[l] = 1; return l;
+  }
+  function idx(name) { for (var i = 0; i < N; i++) if (D.voters[i].name === name) return i; return -1; }
+
+  // speech bubbles (HTML over the canvas so they stay crisp on a phone)
+  var bubWrap = document.createElement('div'); bubWrap.className = 'bubbles'; stage.appendChild(bubWrap);
+  var pill = document.createElement('div'); pill.className = 'phasepill'; stage.appendChild(pill);
+  var banner = document.createElement('div'); banner.className = 'partybanner'; banner.hidden = true; stage.appendChild(banner);
+  var bubs = [], V = new THREE.Vector3(), HEX = { 'The Quant': '#3ee6a1', 'Risk': '#ff5468', 'Momentum': '#ffb03b', 'Time': '#4cb7ff', 'Doubt': '#c9a7ff' };
+  function speak(who, text, dur) {
+    if (!text || (who !== 'chair' && who < 0)) return;
+    var name = who === 'chair' ? 'The Chair' : D.voters[who].name;
+    bubs = bubs.filter(function (b) { if (b.who === who) { b.el.remove(); return false; } return true; });
+    while (bubs.length >= 3) { bubs.shift().el.remove(); }
+    var el = document.createElement('div'); el.className = 'bub'; el.style.setProperty('--bc', who === 'chair' ? '#f4c84a' : HEX[name] || '#fff');
+    var b = document.createElement('b'); b.textContent = name; el.appendChild(b); el.appendChild(document.createTextNode(text));
+    bubWrap.appendChild(el); requestAnimationFrame(function () { el.classList.add('on'); });
+    var len = dur || Math.min(5.5, 2.2 + text.length * 0.045);
+    bubs.push({ who: who, el: el, until: performance.now() / 1000 + len });
+    if (who !== 'chair') people[who].userData.talkUntil = lastT + Math.min(len, 2.6);
+  }
+  function placeBubbles(nowP) {
+    var W = stage.clientWidth, H = renderer.domElement.clientHeight;
+    bubs = bubs.filter(function (b) {
+      if (nowP > b.until) { b.el.classList.remove('on'); setTimeout(function () { b.el.remove(); }, 300); return false; }
+      if (b.who === 'chair') jhead.getWorldPosition(V); else people[b.who].userData.head.getWorldPosition(V);
+      V.y += 0.42; V.project(cam);
+      var x = (V.x + 1) / 2 * W, y = (1 - V.y) / 2 * H, bw = b.el.offsetWidth || 120, bh = b.el.offsetHeight || 40;
+      var left = Math.max(4, Math.min(W - bw - 4, x - bw / 2));
+      b.el.style.left = left + 'px'; b.el.style.top = Math.max(bh + 4, Math.min(H - 4, y)) + 'px';
+      b.el.style.setProperty('--tx', Math.max(12, Math.min(bw - 12, x - left)) + 'px');
+      b.el.style.visibility = V.z > 1 ? 'hidden' : 'visible';
+      return true;
+    });
+  }
+
+  var PARTY_LINES = { 'The Quant': 'The numbers never lie! 📈', 'Risk': 'And we stayed inside our risk. Cheers!', 'Momentum': 'Told you it would run! 🚀',
+                      'Time': 'Right on schedule. ⏱', 'Doubt': 'Fine… I’m impressed. 🥂' };
+  var WAIT_LINES = { 'The Quant': 'Numbers are loaded.', 'Risk': 'Stops ready if we go.', 'Momentum': 'Come on, come on…', 'Time': '', 'Doubt': 'Here we go again.' };
+  var phase = { name: 'mingle', t: 0 }, assembledFor = 0, chats = [], partyQ = null, nextSay = 0;
+  var disco = [0xff4fd8, 0x38e1ff, 0xffd84a].map(function (c) { var l = new THREE.PointLight(c, 0, 9, 2); scene.add(l); return l; });
+  var confettiUntil = 0;
+  function fmtClock(ts) { try { return new Date(ts * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }); } catch (e) { return 'the next candle'; } }
+
+  function startMingle(t) {
+    phase = { name: 'mingle', t: t }; chats = []; banner.hidden = true;
+    people.forEach(function (g, i) { var u = g.userData; u.wantSit = false; u.route = []; u.dance = false; u.task = { type: 'rest', until: t + 0.6 + i * 0.8 }; });
+    if (partyQ) { var P = partyQ; partyQ = null; startParty(t + 0.01, P); }
+  }
+  function callToOrder(t, then, line, hold) {
+    phase = { name: 'assemble', t: t, then: then, hold: hold || 0 }; chats = []; banner.hidden = true;
+    people.forEach(function (g) { var u = g.userData; u.task = null; u.dance = false; goSeat(u); });
+    if (line) speak('chair', line, 3.4);
+  }
+  function startHearing(t) {
+    phase = { name: 'hearing', t: t };
+    people.forEach(function (g) { var u = g.userData; u.pos.copy(u.seat); u.sit = 1; u.route = []; u.wantSit = true; u.task = null; u.spoke = -1; });
+  }
+  function startParty(t, P) {
+    phase = { name: 'party', t: t, p: P, danceT: 0, said: 0 }; chats = [];
+    sset('vfxParty', String(P.t));
+    banner.textContent = '';
+    var h = document.createElement('b'); h.textContent = (P.kind === 'win' ? '🎉 THE THEORY WORKED' : P.kind === 'comeback' ? '🎉 COMEBACK' : '🎉 THEORY PROVEN'); banner.appendChild(h);
+    var a = document.createElement('span'); a.textContent = P.title; banner.appendChild(a);
+    var c = document.createElement('small'); c.textContent = P.detail || ''; banner.appendChild(c);
+    banner.hidden = false;
+    people.forEach(function (g, i) {
+      var u = g.userData, ang = -Math.PI / 2 + (i - (N - 1) / 2) * (Math.PI * 2 / N);
+      var dest = PARTY_C.clone().add(new THREE.Vector3(Math.cos(ang) * 1.05, 0, Math.sin(ang) * 1.05));
+      u.task = null; goTo(u, dest, Math.atan2(PARTY_C.x - dest.x, PARTY_C.z - dest.z));
+    });
+    speak('chair', 'Council! ' + P.title + (P.kind === 'win' ? '!' : P.kind === 'comeback' ? ' is back!' : ' is proven!') + ' Party time!', 3.2);
+  }
+  function burst(cx, cz) {
+    for (var b = 0; b < confN; b++) {
+      cp[b * 3] = (cx || 0) + (Math.random() - 0.5) * 1.2; cp[b * 3 + 1] = 2.6 + Math.random() * 0.4; cp[b * 3 + 2] = (cz === undefined ? -0.6 : cz) + (Math.random() - 0.5) * 1.2;
+      var a = Math.random() * Math.PI * 2, sp_ = 1.2 + Math.random() * 2.4;
+      cv[b] = [Math.cos(a) * sp_, 2 + Math.random() * 3, Math.sin(a) * sp_];
+    }
+    confG.attributes.position.needsUpdate = true; confettiUntil = performance.now() / 1000 + 6;
+  }
+
+  function mingleTick(t) {
+    // finish conversations
+    chats = chats.filter(function (ch) {
+      var A = people[ch.a].userData, B = people[ch.b].userData;
+      if (A.route.length || B.route.length) return true;
+      if (!ch.step) { ch.step = 1; ch.next = t + 0.3; }
+      if (t < ch.next) return true;
+      if (ch.step === 1) { speak(ch.first, ch.l1); ch.step = 2; ch.next = t + Math.min(5, 2.4 + ch.l1.length * 0.045); return true; }
+      if (ch.step === 2) { speak(ch.second, ch.l2); ch.step = 3; ch.next = t + Math.min(5, 2.4 + ch.l2.length * 0.045); return true; }
+      A.task = { type: 'rest', until: t + 1 + Math.random() * 2 }; B.task = { type: 'rest', until: t + 1 + Math.random() * 2 };
+      return false;
+    });
+    var free = [];
+    people.forEach(function (g, i) {
+      var u = g.userData;
+      if (u.task && u.task.type === 'rest' && t > u.task.until) u.task = null;
+      if (u.task && u.task.type === 'solo' && !u.route.length) {
+        if (!u.task.said) { u.task.said = true; u.task.until = t + 3.5 + Math.random() * 2.5; speak(i, lineFor(D.voters[i].name)); }
+        else if (t > u.task.until) u.task = null;
+      }
+      if (!u.task && !u.route.length && u.sit < 0.1) free.push(i);
+    });
+    if (!free.length) return;
+    var talking = chats.length;
+    if (free.length >= 2 && talking < 2 && Math.random() < 0.6) {
+      var ds = (D.dialogs || []).slice().sort(function () { return Math.random() - 0.5; });
+      for (var k = 0; k < ds.length; k++) {
+        var a = idx(ds[k][0]), b = idx(ds[k][2]);
+        if (a < 0 || b < 0 || free.indexOf(a) < 0 || free.indexOf(b) < 0) continue;
+        var key = ds[k][1]; if ((chats.used || {})[key] && Math.random() < 0.8) continue;
+        var S = rnd(SPOTS), ang = Math.random() * Math.PI, off = new THREE.Vector3(Math.cos(ang) * 0.48, 0, Math.sin(ang) * 0.48);
+        var pa = S.clone().add(off), pb = S.clone().sub(off), A = people[a].userData, B = people[b].userData;
+        goTo(A, pa, Math.atan2(pb.x - pa.x, pb.z - pa.z)); goTo(B, pb, Math.atan2(pa.x - pb.x, pa.z - pb.z));
+        A.task = { type: 'chat' }; B.task = { type: 'chat' };
+        chats.push({ a: a, b: b, first: a, second: b, l1: ds[k][1], l2: ds[k][3], step: 0 });
+        return;
+      }
+    }
+    var i = rnd(free), u = people[i].userData;
+    if (Math.random() < 0.25) { goTo(u, u.seat.clone().add(new THREE.Vector3(Math.sin(u.faceSeat) * 0.55, 0, Math.cos(u.faceSeat) * 0.55)), u.faceSeat + Math.PI); }
+    else { var S2 = rnd(SPOTS), j = new THREE.Vector3((Math.random() - 0.5) * 0.6, 0, (Math.random() - 0.5) * 0.6);
+      goTo(u, S2.clone().add(j), Math.atan2(-S2.x, (S2.z < 1.5 ? 1.0 : 5) - S2.z)); }
+    u.task = { type: 'solo' };
+  }
+  function separate() {
+    for (var a = 0; a < N; a++) for (var b = a + 1; b < N; b++) {
+      var A = people[a].userData, B = people[b].userData;
+      if (A.sit > 0.2 || B.sit > 0.2) continue;
+      var dx = B.pos.x - A.pos.x, dz = B.pos.z - A.pos.z, d = Math.hypot(dx, dz);
+      if (d > 0 && d < 0.62) { var push = (0.62 - d) / 2 / d; A.pos.x -= dx * push; A.pos.z -= dz * push; B.pos.x += dx * push; B.pos.z += dz * push; }
+    }
+  }
+  function steer(g, u, t, dt, frozen) {
+    if (u.route.length && !frozen) {
+      if (u.sit > 0.02) u.sit = Math.max(0, u.sit - dt * 2.2);
+      else {
+        var tg = u.route[0], dx = tg.x - u.pos.x, dz = tg.z - u.pos.z, dist = Math.hypot(dx, dz), st_ = SPEED * dt;
+        if (dist <= st_) { u.pos.x = tg.x; u.pos.z = tg.z; u.route.shift(); } else { u.pos.x += dx / dist * st_; u.pos.z += dz / dist * st_; }
+      }
+    } else if (!u.route.length) {
+      u.sit += ((u.wantSit ? 1 : 0) - u.sit) * Math.min(1, dt * 3);
+    }
+    return { pos: u.pos, sit: u.sit, face: u.face, dance: u.dance };
+  }
+  function nextVoteTs(ns) { var nv = D.nextVote || 0; while (nv && ns - nv > 60) nv += 900; return nv; }
+
+  function director(t, dt) {
+    var ns = nowS();
+    if (phase.name === 'hearing') {
+      if (t - phase.t >= CYCLE) { sset('vfxHeard', String(D.lastVoteT)); startMingle(t); }
+      return;
+    }
+    if (phase.name === 'assemble') {
+      if (people.every(seated)) {
+        if (phase.then === 'hearing') startHearing(t);
+        else { phase = { name: 'wait', t: t, until: phase.hold ? t + phase.hold : 0, closed: !!phase.hold }; nextSay = t + 2; }
+      }
+      return;
+    }
+    if (phase.name === 'wait') {
+      var left = Math.round(assembledFor - ns);
+      if (left > 0 && t > nextSay) {
+        nextSay = t + 6;
+        var who = Math.floor(Math.random() * N), nm = D.voters[who].name;
+        speak(who, nm === 'Time' ? 'Candle closes in ' + left + ' seconds.' : WAIT_LINES[nm], 2.6);
+      }
+      if (left <= 0 && !phase.closed) { phase.closed = true; speak('chair', 'The candle has closed. Counting votes… results post in about a minute.', 4.5); }
+      if (!phase.until && ns > assembledFor + 110 && !phase.reloading) { phase.reloading = true; location.replace(location.pathname + '?r=' + Math.floor(ns)); }
+      if (phase.until && t > phase.until) startMingle(t);
+      return;
+    }
+    if (phase.name === 'party') {
+      var allIn = people.every(function (g) { return !g.userData.route.length; });
+      if (allIn && !phase.danceT) { phase.danceT = t; burst(PARTY_C.x, PARTY_C.z); people.forEach(function (g) { g.userData.dance = true; }); }
+      if (phase.danceT) {
+        var dtp = t - phase.danceT;
+        while (phase.said < N && dtp > 0.8 + phase.said * 1.7) { speak(phase.said, PARTY_LINES[D.voters[phase.said].name] || '🎉', 2.6); phase.said++; }
+        if (Math.floor(dtp / 2.8) !== phase.lastBurst) { phase.lastBurst = Math.floor(dtp / 2.8); if (dtp > 1) burst(PARTY_C.x + (Math.random() - 0.5), PARTY_C.z); }
+        if (dtp > 10 && !phase.bye) { phase.bye = true; speak('chair', 'Well done, council. Back to work!', 2.8); }
+        if (dtp > 12.5) { people.forEach(function (g) { g.userData.dance = false; }); startMingle(t); }
+      }
+      return;
+    }
+    // mingle
+    if (!D.recess) {
+      var nv = nextVoteTs(ns), lft = nv - ns;
+      if (nv && lft > 0 && lft <= 75 && assembledFor !== nv) {
+        assembledFor = nv; sset('vfxWait', String(nv), true);
+        callToOrder(t, 'wait', 'Council, to your seats! Vote at ' + fmtClock(nv) + '.');
+        return;
+      }
+    }
+    mingleTick(t);
+  }
+  function phaseLabel(ns) {
+    if (phase.name === 'hearing') return '⚖️ In session';
+    if (phase.name === 'party') return '🎉 Party!';
+    if (phase.name === 'assemble') return '📣 Taking seats';
+    if (phase.name === 'wait') { var l = Math.round(assembledFor - ns); return l > 0 ? '⏳ Vote in ' + l + 's' : '🗳 Counting votes…'; }
+    if (D.recess) return '☕ Off duty · market closed';
+    var nv = nextVoteTs(ns), s = Math.max(0, Math.round(nv - ns));
+    return nv ? '☕ Break · next vote in ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') : '☕ Break';
+  }
+
+  // what to do when the page opens
+  (function boot() {
+    var ns = nowS(), wait = +(sget('vfxWait', true) || 0);
+    var P = (D.parties || []).filter(function (p) { return p.t > +(sget('vfxParty') || 0) && ns - p.t < 172800; }).pop();
+    if (P) partyQ = P;
+    if (wait && !D.recess) {
+      if (D.scanT < wait && ns < wait + 420) {                        // the new results haven't posted yet
+        assembledFor = wait; phase = { name: 'wait', t: 0, closed: true, reloading: true }; nextSay = 2;
+        setTimeout(function () { speak('chair', 'Still counting… hang tight.', 3); }, 600);
+        var tries = +(sget('vfxTries', true) || 0); sset('vfxTries', String(tries + 1), true);
+        if (tries < 5) setTimeout(function () { location.replace(location.pathname + '?r=' + Math.floor(nowS())); }, 45000);
+        else { sdel('vfxWait', true); phase.until = 4; }
+        return;
+      }
+      sdel('vfxWait', true); sdel('vfxTries', true);
+      if (D.verdict && D.lastVoteT >= wait - 120) { startHearing(0); return; }
+      phase = { name: 'wait', t: 0, closed: true, until: 5 }; assembledFor = ns - 999;
+      setTimeout(function () { speak('chair', 'No setups this candle. Back to work, team!', 3.4); }, 500);
+      return;
+    }
+    if (D.verdict && D.lastVoteT && ns - D.lastVoteT < 600 && sget('vfxHeard') !== String(D.lastVoteT) && !D.recess) { startHearing(0); return; }
+    startMingle(0);
+    if (!partyQ) setTimeout(function () { var i = Math.floor(Math.random() * N); speak(i, lineFor(D.voters[i].name)); }, 1500);
+  })();
+  var callBtn = document.getElementById('callOrder'), partyBtn = document.getElementById('partyBtn');
+  if (callBtn) {
+    if (!D.verdict) callBtn.textContent = '📣 Call to order (no vote yet)';
+    callBtn.addEventListener('click', function () {
+      if (phase.name === 'hearing' || phase.name === 'assemble') return;
+      if (D.verdict) callToOrder(lastT, 'hearing', 'Order! Let’s go over the last vote.');
+      else { assembledFor = nowS() - 999; callToOrder(lastT, 'wait', 'Order! Nothing to vote on yet. As you were.', 5); }
+    });
+  }
+  var lastParty = (D.parties || [])[(D.parties || []).length - 1];
+  if (partyBtn && lastParty) {
+    partyBtn.hidden = false;
+    partyBtn.addEventListener('click', function () { if (phase.name !== 'party' && phase.name !== 'hearing') startParty(lastT, lastParty); });
+  }
 
   // ── layout
   function size() {
@@ -1951,20 +2359,29 @@ ROOM_JS = r"""
     if (tau < t4) return { pos: along(u.back, smooth((tau - t3) / WALK)), sit: 0, spoke: true };
     return { pos: u.seat, sit: smooth((tau - t4) / 0.5), spoke: true };
   }
-  var t0 = performance.now(), lastT = 0;
+  t0 = performance.now(); lastT = 0;
   function frame(now) {
     if (!stage.offsetParent) { requestAnimationFrame(frame); return; }   // hidden (collapsed section): skip work
     var t = (now - t0) / 1000, dt = Math.min(0.05, t - lastT); lastT = t;
-    var c = still ? CYCLE - 3 : (D.verdict ? t % CYCLE : 0);
-    var deliberating = D.verdict && c < CYCLE - 0.6;
-    var verdictOn = D.verdict && c >= VERDICT_AT + 0.45 && c < CYCLE - 0.6;
+    if (!still) director(t, dt);
+    var hearing = phase.name === 'hearing' && !!D.verdict, formal = hearing || still;
+    var c = hearing ? t - phase.t : (still && D.verdict ? CYCLE - 3 : 0);
+    var deliberating = D.verdict && formal && c < CYCLE - 0.6;
+    var verdictOn = D.verdict && formal && c >= VERDICT_AT + 0.45 && c < CYCLE - 0.6;
+    var reacting = react && now / 1000 - react.t < REACT_LEN;
+    if (!formal) separate();
+    if (still && t > nextSay) { nextSay = t + 6; var si = Math.floor(Math.random() * N); speak(si, lineFor(D.voters[si].name)); }
     if (stampEl) stampEl.classList.toggle('show', !!verdictOn);
     world.rotation.y += (turn + (still ? 0 : Math.sin(t * 0.12) * 0.05) - world.rotation.y) * 0.06;
 
     var speaker = -1;
     people.forEach(function (g, i) {
-      var u = g.userData, p = plan(i, c);
-      if (react && now / 1000 - react.t < REACT_LEN) p = { pos: u.seat, sit: 1 };   // reactions pause the hearing
+      var u = g.userData, p = formal ? plan(i, c) : steer(g, u, t, dt, reacting);
+      if (reacting && formal) p = { pos: u.seat, sit: 1 };   // reactions pause the hearing
+      if (hearing && p.at && p.k > 0.3 && u.spoke !== phase.t) {
+        u.spoke = phase.t; var vv = D.voters[i];
+        speak(i, (vv.vote === true ? 'YES. ' : vv.vote === false ? 'NO. ' : 'I pass. ') + (vv.why || ''), 2.8);
+      }
       if (p.at) speaker = i;
       u.prev.copy(g.position);
       var drop = (u.hip - 0.52) * p.sit;
@@ -1972,7 +2389,7 @@ ROOM_JS = r"""
       var vx = (g.position.x - u.prev.x) / Math.max(dt, 1e-3), vz = (g.position.z - u.prev.z) / Math.max(dt, 1e-3);
       var speed = Math.hypot(vx, vz);
       var target = p.at ? Math.atan2(cam.position.x - g.position.x, cam.position.z - g.position.z) - world.rotation.y
-                 : speed > 0.15 ? Math.atan2(vx, vz) : u.faceSeat;
+                 : speed > 0.15 ? Math.atan2(vx, vz) : (p.face !== undefined ? p.face : u.faceSeat);
       var d = Math.atan2(Math.sin(target - u.yaw), Math.cos(target - u.yaw)); u.yaw += d * 0.12; g.rotation.y = u.yaw;
       var stride = Math.min(1, speed / 0.9), ph = t * 8 + u.phase, sw = Math.sin(ph) * 0.6 * stride;
       if (u.legL) {
@@ -1997,7 +2414,10 @@ ROOM_JS = r"""
       // blink + speaking pulse
       if (!still && t > u.blinkAt) { u.blinkAt = t + 2.5 + ((i * 1.7 + t) % 3); u.blinkEnd = t + 0.12; }
       var blink = (!still && u.blinkEnd && t < u.blinkEnd) ? 0.15 : 1;
-      var talk = p.at && p.k > 0.25 && p.k < 1.3 ? 0.5 + 0.5 * Math.sin(t * 22) : 0;
+      var talk = (p.at && p.k > 0.25 && p.k < 1.3) || u.talkUntil > t ? 0.5 + 0.5 * Math.sin(t * 22) : 0;
+      if (u.talkUntil > t && speed < 0.15 && !p.at && p.sit < 0.3 && u.armR) {            // talk with your hands
+        var gst = 0.5 + 0.5 * Math.sin(t * 2.6 + i); u.armR.rotation.x -= 0.55 * gst; u.armR.userData.joint.rotation.x -= 0.7 * gst;
+      }
       u.glows.forEach(function (m) { m.scale.y = blink; });
       u.faceGlow.material.opacity = 0.25 + talk * 0.6; u.faceGlow.scale.setScalar(0.3 + talk * 0.3);
       if (u.mouth) u.mouth.scale.y = 1 + talk * 3.5;
@@ -2027,6 +2447,16 @@ ROOM_JS = r"""
         if (u.head) u.head.rotation.x = 0;
         if (u.glass) u.glass.visible = false;
       }
+      if (p.dance) {
+        var bt = t * 6 + i * 1.3;
+        g.position.y = Math.abs(Math.sin(bt)) * 0.13;
+        if (u.armR) { u.armR.rotation.x = -2.7 + Math.sin(bt) * 0.35; u.armR.userData.joint.rotation.x = -0.2; }
+        if (u.armL) { u.armL.rotation.x = -2.6 + Math.cos(bt) * 0.4; u.armL.userData.joint.rotation.x = -0.2; }
+        if (u.legL) { u.legL.rotation.x = Math.sin(bt) * 0.3; u.legR.rotation.x = -Math.sin(bt) * 0.3; }
+        if (u.glass) u.glass.visible = true;
+        if (u.mouth) u.mouth.scale.set(1.4, 3, 1);
+        if (i === Math.floor(t / 2.4) % N) g.rotation.y = u.yaw + ((t % 2.4) / 2.4) * Math.PI * 2;      // take turns spinning
+      }
       u.halo.visible = p.sit < 0.5;
       var sel = picked === i ? 1.08 : 1; g.scale.setScalar(g.scale.x + (sel - g.scale.x) * 0.2);
       u.halo.material.opacity = picked === i ? 0.95 : 0.4;
@@ -2043,7 +2473,8 @@ ROOM_JS = r"""
 
     var rkk = react ? now / 1000 - react.t : 99;
     if (react && react.kind === 'cheers' && rkk > 1.45 && !react.burst) { react.burst = true; burst(); }
-    if (rkk < REACT_LEN + 3) {
+    var nowP = now / 1000, confLeft = Math.max(confettiUntil - nowP, 0);
+    if (rkk < REACT_LEN + 3 || confLeft > 0) {
       var cpos = confG.attributes.position;
       for (var b = 0; b < confN; b++) {
         if (cp[b * 3 + 1] < -10) continue;
@@ -2052,7 +2483,7 @@ ROOM_JS = r"""
         if (cp[b * 3 + 1] < 0.02) { cp[b * 3 + 1] = 0.02; cv[b] = [0, 0, 0]; }
       }
       cpos.needsUpdate = true;
-      confetti.material.opacity = rkk < REACT_LEN ? 1 : Math.max(0, 1 - (rkk - REACT_LEN) / 3);
+      confetti.material.opacity = Math.max(rkk < REACT_LEN ? 1 : Math.max(0, 1 - (rkk - REACT_LEN) / 3), Math.min(1, confLeft / 2));
     } else if (confetti.material.opacity > 0) {
       confetti.material.opacity = 0; for (var b2 = 0; b2 < confN; b2++) cp[b2 * 3 + 1] = -50; confG.attributes.position.needsUpdate = true;
     }
@@ -2067,7 +2498,14 @@ ROOM_JS = r"""
     jhead.rotation.y += (look - jhead.rotation.y) * 0.08;
     jhead.rotation.x = react && react.kind === 'cheers' && rkk < REACT_LEN ? Math.sin(rkk * 6) * 0.15 : 0;
     halo.rotation.z = t * 0.6;
-    var gt = D.verdict ? (c - VERDICT_AT) : -1;
+    var gt = (D.verdict && formal) ? (c - VERDICT_AT) : -1;
+    if (hearing && gt > 0.5 && !phase.ruled) { phase.ruled = true; speak('chair', (D.approved ? 'Approved, ' : 'Rejected, ') + String(D.verdict).replace(/^\S+ /, '') + '. So ordered!', 3.2); }
+    var partyOn = phase.name === 'party' && phase.danceT;
+    disco.forEach(function (l, k) { l.intensity += ((partyOn ? 3 : 0) - l.intensity) * 0.08;
+      l.position.set(PARTY_C.x + Math.cos(t * 1.6 + k * 2.1) * 2.2, 3.2, PARTY_C.z + Math.sin(t * 1.6 + k * 2.1) * 1.6); });
+    if (partyOn) jhead.rotation.x = Math.sin(t * 6) * 0.18;
+    placeBubbles(nowP);
+    if (!frame._pl || t - frame._pl > 0.5) { frame._pl = t; pill.textContent = phaseLabel(nowS()); pill.className = 'phasepill ' + phase.name; }
     var swing = gt < 0 ? 0 : gt < 0.35 ? -smooth(gt / 0.35) * 1.1 : gt < 0.5 ? -1.1 + smooth((gt - 0.35) / 0.15) * 1.5 : 0.4 - smooth((gt - 0.5) / 0.6) * 0.4;
     arm.rotation.x = still ? 0 : swing;
     var flash = verdictOn ? Math.max(0, 1 - (c - VERDICT_AT - 0.45) / 1.6) : 0;
@@ -2489,6 +2927,29 @@ details {{ color:var(--muted) }} .fine {{ color:var(--muted); font-size:12px; ma
 .overall small {{ color:#c9bdf0; font-size:11px }}
 .overall .lbl {{ font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:#b6a8e6 }}
 .stage {{ display:none; position:relative; border-radius:10px; overflow:hidden; touch-action:pan-y }}
+.bubbles {{ position:absolute; inset:0; pointer-events:none; overflow:hidden }}
+.bub {{ position:absolute; max-width:min(150px, 46%); padding:6px 9px 7px; border-radius:12px; background:#0d1322f0; color:#eaf2ff;
+  font:600 11.5px/1.3 ui-sans-serif,-apple-system,"Segoe UI",sans-serif; border:1.5px solid var(--bc); box-shadow:0 6px 16px #0009;
+  transform:translateY(-100%) scale(.6); transform-origin:var(--tx, 50%) 100%; opacity:0; transition:opacity .22s, transform .28s cubic-bezier(.2,1.5,.4,1) }}
+.bub.on {{ opacity:1; transform:translateY(-100%) scale(1) }}
+.bub::after {{ content:""; position:absolute; bottom:-6px; left:var(--tx, 50%); width:10px; height:10px; background:#0d1322;
+  border-right:1.5px solid var(--bc); border-bottom:1.5px solid var(--bc); transform:translateX(-50%) rotate(45deg) }}
+.bub b {{ display:block; font-size:9.5px; letter-spacing:.07em; text-transform:uppercase; color:var(--bc); margin-bottom:1px }}
+.phasepill {{ position:absolute; left:10px; bottom:10px; pointer-events:none; font:700 11px/1 ui-sans-serif,-apple-system,sans-serif;
+  color:#eaf2ff; background:#0d1322cc; border:1px solid #38e1ff66; padding:6px 9px; border-radius:99px; letter-spacing:.02em }}
+.phasepill.hearing {{ border-color:#f4c84a; color:#f4c84a }} .phasepill.party {{ border-color:#ff4fd8; color:#ffd84a }}
+.phasepill.wait, .phasepill.assemble {{ border-color:#ffb03b; color:#ffd59a }}
+.partybanner {{ position:absolute; top:10px; left:50%; transform:translateX(-50%); width:max-content; max-width:calc(100% - 20px); text-align:center;
+  pointer-events:none; background:linear-gradient(135deg,#3a1450ee,#14304aee); border:1.5px solid #ffd84a; border-radius:12px; padding:8px 14px;
+  color:#fff; box-shadow:0 0 24px #ff4fd855; animation:bannerIn .5s cubic-bezier(.2,1.5,.4,1) both }}
+.partybanner b {{ display:block; color:#ffd84a; font:800 12px/1.2 ui-sans-serif,-apple-system,sans-serif; letter-spacing:.12em }}
+.partybanner span {{ display:block; font-weight:700; font-size:14px; margin-top:2px }} .partybanner small {{ color:#cfe3ff; font-size:11.5px }}
+@keyframes bannerIn {{ from {{ opacity:0; transform:translate(-50%,-12px) scale(.8) }} }}
+.roomctl {{ display:flex; gap:8px; flex-wrap:wrap }}
+.roomctl button {{ font:700 13px/1 ui-sans-serif,-apple-system,sans-serif; color:#efe9ff; background:#2b2150; border:1px solid #6a58b8;
+  border-radius:99px; padding:9px 13px; cursor:pointer }}
+.roomctl button:focus-visible {{ outline:2px solid #f4c84a; outline-offset:2px }}
+@media (prefers-reduced-motion: reduce) {{ .bub, .partybanner {{ transition:none; animation:none }} }}
 .stage canvas {{ display:block; width:100% !important; cursor:grab }}
 .is3d .stage {{ display:block }}
 .is3d .table, .is3d .char, .is3d .seat .sign {{ display:none }}
