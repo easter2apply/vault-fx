@@ -1321,7 +1321,7 @@ def council_room(state):
         verdict = f"{'APPROVED' if lv['approved'] else 'REJECTED'} {yes}–{no}"
         when = dt.datetime.fromtimestamp(lv["when"], LOCAL_TZ).strftime("%a %I:%M %p")
         docket = (f'<a href="{html.escape(lv["url"])}" target="_blank" rel="noopener">{html.escape(lv["label"])}</a>'
-                  + (f'<small>{html.escape(lv["detail"])} · voted {when}</small>' if lv.get("detail") else
+                  + (f'<small>{html.escape(lv["detail"])} · voted {when} (<span class="ago" data-t="{int(lv["when"])}"></span>)</small>' if lv.get("detail") else
                   f'<small>BUY {lv["side"]} @ {round(lv["ask"] * 100)}¢ · edge {round(lv["edge"] * 100)}¢ · voted {when}</small>'))
         stamp = f'<div class="stamp {"ok" if lv["approved"] else "rej"}">{verdict}</div>'
     else:
@@ -1334,8 +1334,12 @@ def council_room(state):
     return f"""<section class="room" id="room3d" aria-label="Council room">
   <div class="roomhead">
     <div class="overall"><span class="lbl">Council accuracy</span><b>{overall}</b><small>{overall_sub}</small></div>
-    <div class="docket"><span class="lbl">On the table</span>{docket}</div>
+    <div class="docket"><span class="lbl">{'Last vote' if lv else 'On the table'}</span>{docket}
+      {'<small class="stale" id="stalenote" hidden>No new setup since then. The council only meets when a pair has a setup, so this stays up until the next one.</small>' if lv else ''}</div>
   </div>
+  <script>(function(){{function f(){{document.querySelectorAll('.docket .ago').forEach(function(e){{var m=Math.round((Date.now()/1000-(+e.dataset.t))/60);
+    e.textContent=m<1?'just now':m<60?m+' min ago':Math.floor(m/60)+'h '+(m%60)+'m ago';
+    var n=document.getElementById('stalenote');if(n)n.hidden=m<16;}});}}f();setInterval(f,30000);}})();</script>
   <div class="stage" id="stage3d"><div class="stamp3d">{stamp}</div><div class="tip3d" id="tip3d" hidden></div></div>
   <div class="floor">
     <div class="table"><div class="gavel" aria-hidden="true"></div>{stamp}</div>
@@ -2049,11 +2053,13 @@ def next_panel(st):
           <p>{html.escape(note)}</p></li>""")
     body = "".join(rows) or "<li><p>Readiness shows up after the first full scan.</p></li>"
     return f"""<section class="nextwrap" aria-label="Next hearing">
-  <div class="nh"><div><h2>Next hearing</h2><p class="muted">{when}{day} ET candle · {len(live)} market{'s' if len(live) != 1 else ''} in session</p></div>
+  <div class="nh"><div><h2>Next hearing</h2><p class="muted"><span id="cdl">{when}{day}</span> ET candle · {len(live)} market{'s' if len(live) != 1 else ''} in session</p></div>
   <div class="cd" id="cd" data-t="{int(t.timestamp())}">--:--</div></div>
   <ol class="ready">{body}</ol>
   <script>(function(){{var e=document.getElementById('cd'),t=+e.dataset.t;function f(){{var s=Math.max(0,Math.round(t-Date.now()/1000));
-  if(Date.now()/1000-t>60)t+=900*Math.ceil((Date.now()/1000-t-60)/900);s=Math.max(0,Math.round(t-Date.now()/1000));
+  if(Date.now()/1000-t>60){{t+=900*Math.ceil((Date.now()/1000-t-60)/900);try{{document.getElementById('cdl').textContent=
+    new Date(t*1000).toLocaleTimeString('en-US',{{hour:'numeric',minute:'2-digit',timeZone:'America/New_York'}});}}catch(_){{}}}}
+  s=Math.max(0,Math.round(t-Date.now()/1000));
   var h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;e.textContent=s?((h?h+':'+String(m).padStart(2,'0'):m)+':'+String(x).padStart(2,'0')):'voting now';}}f();setInterval(f,1000);}})();</script>
 </section>"""
 
@@ -2320,6 +2326,7 @@ details {{ color:var(--muted) }} .fine {{ color:var(--muted); font-size:12px; ma
 .tip3d[hidden] {{ display:none }}
 .tip3d b {{ font-size:13px }} .tip3d small {{ color:#b6a8e6 }}
 .docket {{ display:grid; gap:2px; min-width:0 }}
+.docket .stale {{ color:#f4c84a; margin-top:4px }} .docket .stale[hidden] {{ display:none }}
 .docket .lbl {{ font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:#b6a8e6 }}
 .docket a, .docket span {{ color:#fff; font-weight:650; font-size:16px; text-decoration:none }}
 .docket small {{ color:#c9bdf0 }}
