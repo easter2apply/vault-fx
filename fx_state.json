@@ -6,14 +6,14 @@
   "nav": 498.0136,
   "oanda_nav": 99998.1162,
   "unrealized": -1.9864,
-  "updated": 1791839413.774815
+  "updated": 1791839714.198833
  },
  "bot_username": "EVaultFX_bot",
  "chat_id": "7590441188",
  "closed": [],
  "council_record": {
-  "right": 0,
-  "total": 0
+  "right": 3,
+  "total": 3
  },
  "day": {
   "date": "2026-10-12",
@@ -63,6 +63,10 @@
   [
    1791838819,
    499.78
+  ],
+  [
+   1791839714,
+   498.01
   ]
  ],
  "errors": [],
@@ -682,31 +686,51 @@
     }
    ],
    "ok": null,
-   "t": 1791839420.333455,
+   "t": 1791839719.6382585,
    "text": null,
    "title": "Scanned 6 markets: 0 setups on the latest candle",
    "verdict": null,
    "who": null
   }
  ],
+ "history": [
+  {
+   "right": true,
+   "t": 1791839718.9475253,
+   "trade": false,
+   "won": false
+  },
+  {
+   "right": true,
+   "t": 1791839718.9475856,
+   "trade": false,
+   "won": false
+  },
+  {
+   "right": true,
+   "t": 1791839718.9476135,
+   "trade": false,
+   "won": false
+  }
+ ],
  "last_bar": {
   "AUD_USD": "2026-10-12T20:00:00",
-  "AUD_USD:M15": "2026-10-12T20:45:00",
+  "AUD_USD:M15": "2026-10-12T21:00:00",
   "EUR_USD": "2026-10-12T20:00:00",
-  "EUR_USD:M15": "2026-10-12T20:45:00",
+  "EUR_USD:M15": "2026-10-12T21:00:00",
   "GBP_USD": "2026-10-12T20:00:00",
-  "GBP_USD:M15": "2026-10-12T20:45:00",
+  "GBP_USD:M15": "2026-10-12T21:00:00",
   "USD_CAD": "2026-10-12T20:00:00",
-  "USD_CAD:M15": "2026-10-12T20:45:00",
+  "USD_CAD:M15": "2026-10-12T21:00:00",
   "USD_CHF": "2026-10-12T20:00:00",
-  "USD_CHF:M15": "2026-10-12T20:45:00",
+  "USD_CHF:M15": "2026-10-12T21:00:00",
   "USD_JPY": "2026-10-12T20:00:00",
-  "USD_JPY:M15": "2026-10-12T20:45:00"
+  "USD_JPY:M15": "2026-10-12T21:00:00"
  },
  "last_daily": "2026-10-12",
- "last_deploy": 1791838831.692734,
- "last_full_run": 1791839413.774815,
- "last_run": 1791839413.774815,
+ "last_deploy": 1791839719.6445866,
+ "last_full_run": 1791839714.198833,
+ "last_run": 1791839714.198833,
  "last_vote": {
   "approved": false,
   "ask": 0,
@@ -808,6 +832,38 @@
   },
   "when": 1791838819.150036
  },
+ "learn": {
+  "combos": {
+   "USD_JPY:pullback 15m": [
+    -1.0,
+    -1.0,
+    -1.0
+   ]
+  },
+  "outcomes": [
+   {
+    "approved": false,
+    "pair": "USD_JPY",
+    "r": -1.0,
+    "setup": "pullback 15m",
+    "t": 1791839718.9475477
+   },
+   {
+    "approved": false,
+    "pair": "USD_JPY",
+    "r": -1.0,
+    "setup": "pullback 15m",
+    "t": 1791839718.9475887
+   },
+   {
+    "approved": false,
+    "pair": "USD_JPY",
+    "r": -1.0,
+    "setup": "pullback 15m",
+    "t": 1791839718.9476151
+   }
+  ]
+ },
  "mode": "practice",
  "news": {
   "events": [
@@ -897,12 +953,12 @@
     "tf": "H1",
     "waiting": [
      "a pullback to the trend line or a fresh crossover",
-     "spread is 57% of ATR"
+     "spread is 66% of ATR"
     ]
    },
    "rsi": 35.43660004489412,
    "setup": null,
-   "spread_pips": 3.1000000000003247,
+   "spread_pips": 3.6000000000002697,
    "tradeable": true,
    "trend": -1
   },
@@ -928,7 +984,7 @@
    },
    "rsi": 26.979908849711578,
    "setup": null,
-   "spread_pips": 1.6000000000016001,
+   "spread_pips": 1.40000000000029,
    "tradeable": true,
    "trend": -1
   },
@@ -949,12 +1005,12 @@
     "tf": "H1",
     "waiting": [
      "a pullback to the trend line or a fresh crossover",
-     "spread is 117% of ATR"
+     "spread is 112% of ATR"
     ]
    },
    "rsi": 35.752186096259095,
    "setup": null,
-   "spread_pips": 10.699999999999044,
+   "spread_pips": 10.200000000000209,
    "tradeable": true,
    "trend": -1
   },
@@ -970,17 +1026,17 @@
     "dir": 1,
     "in_trade": false,
     "of": 6,
-    "passed": 3,
+    "passed": 2,
     "session": false,
-    "tf": "M15",
+    "tf": "H1",
     "waiting": [
-     "spread is 437% of ATR",
-     "MACD against us (up)"
+     "a pullback to the trend line or a fresh crossover",
+     "ADX 14 (needs 18)"
     ]
    },
    "rsi": 62.751211774847015,
    "setup": null,
-   "spread_pips": 12.499999999999734,
+   "spread_pips": 12.399999999999078,
    "tradeable": true,
    "trend": 1
   },
@@ -1001,12 +1057,12 @@
     "tf": "H1",
     "waiting": [
      "a pullback to the trend line or a fresh crossover",
-     "spread is 141% of ATR"
+     "spread is 118% of ATR"
     ]
    },
    "rsi": 74.80718798614177,
    "setup": null,
-   "spread_pips": 8.60000000000083,
+   "spread_pips": 7.200000000000539,
    "tradeable": true,
    "trend": 1
   },
@@ -1027,12 +1083,12 @@
     "tf": "H1",
     "waiting": [
      "a pullback to the trend line or a fresh crossover",
-     "spread is 109% of ATR"
+     "spread is 108% of ATR"
     ]
    },
    "rsi": 62.52811137251099,
    "setup": null,
-   "spread_pips": 9.999999999999432,
+   "spread_pips": 9.899999999998954,
    "tradeable": true,
    "trend": 1
   }
@@ -1045,7 +1101,28 @@
   "pl": 0.0,
   "wins": 0
  },
- "scoreboard": {},
+ "scoreboard": {
+  "Doubt": {
+   "right": 0,
+   "total": 3
+  },
+  "Momentum": {
+   "right": 2,
+   "total": 3
+  },
+  "Risk": {
+   "right": 3,
+   "total": 3
+  },
+  "The Quant": {
+   "right": 0,
+   "total": 3
+  },
+  "Time": {
+   "right": 0,
+   "total": 3
+  }
+ },
  "shadow": [
   {
    "bar": "2026-10-12T16:00:00",
@@ -1109,22 +1186,6 @@
    }
   },
   {
-   "bar": "2026-10-12T18:30:00",
-   "dir": 1,
-   "pair": "USD_JPY",
-   "setup": "pullback 15m",
-   "sl": 158.62085087483706,
-   "tf": "M15",
-   "tp": 158.7987236877444,
-   "votes": {
-    "Doubt": true,
-    "Momentum": false,
-    "Risk": false,
-    "The Quant": true,
-    "Time": true
-   }
-  },
-  {
    "bar": "2026-10-12T18:00:00",
    "dir": -1,
    "pair": "GBP_USD",
@@ -1153,38 +1214,6 @@
     "Momentum": false,
     "Risk": false,
     "The Quant": false,
-    "Time": true
-   }
-  },
-  {
-   "bar": "2026-10-12T19:00:00",
-   "dir": 1,
-   "pair": "USD_JPY",
-   "setup": "pullback 15m",
-   "sl": 158.6173561114679,
-   "tf": "M15",
-   "tp": 158.78896583279817,
-   "votes": {
-    "Doubt": true,
-    "Momentum": false,
-    "Risk": false,
-    "The Quant": true,
-    "Time": true
-   }
-  },
-  {
-   "bar": "2026-10-12T19:15:00",
-   "dir": 1,
-   "pair": "USD_JPY",
-   "setup": "pullback 15m",
-   "sl": 158.59997353207777,
-   "tf": "M15",
-   "tp": 158.76503970188335,
-   "votes": {
-    "Doubt": true,
-    "Momentum": true,
-    "Risk": false,
-    "The Quant": true,
     "Time": true
    }
   },
