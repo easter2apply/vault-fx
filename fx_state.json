@@ -6,7 +6,7 @@
   "nav": 100.0,
   "oanda_nav": 100000.0,
   "unrealized": 0,
-  "updated": 1791827168.700231
+  "updated": 1791827511.317154
  },
  "chat_id": "7590441188",
  "closed": [],
@@ -25,16 +25,52 @@
    "benched": 0,
    "news": 0,
    "opened": 0,
-   "rejected": 0,
-   "setups": 0,
+   "rejected": 2,
+   "setups": 2,
    "start_nav": 100.0
   }
  },
  "last_bar": {
+  "AUD_USD": "2026-10-12T16:00:00",
   "EUR_USD": "2026-10-12T16:00:00",
+  "GBP_USD": "2026-10-12T16:00:00",
+  "USD_CAD": "2026-10-12T16:00:00",
+  "USD_CHF": "2026-10-12T16:00:00",
   "USD_JPY": "2026-10-12T16:00:00"
  },
- "last_full_run": 1791827168.700231,
+ "last_full_run": 1791827511.317154,
+ "last_vote": {
+  "approved": false,
+  "ask": 0,
+  "detail": "entry 0.69567 \u00b7 stop 0.69693 \u00b7 target 0.69378",
+  "edge": 0,
+  "label": "AUD/USD SELL (crossover)",
+  "side": "SELL",
+  "url": "https://www.oanda.com/",
+  "votes": {
+   "Doubt": [
+    true,
+    "4-hour trend agrees"
+   ],
+   "Momentum": [
+    true,
+    "MACD building down"
+   ],
+   "Risk": [
+    false,
+    "spread is 21% of ATR"
+   ],
+   "The Quant": [
+    false,
+    "ADX 16 (needs 22)"
+   ],
+   "Time": [
+    true,
+    "RSI 32"
+   ]
+  },
+  "when": 1791827511.317154
+ },
  "mode": "practice",
  "news": {
   "events": [
@@ -107,6 +143,19 @@
   "fetched": 1791827169.578656
  },
  "pairs": {
+  "AUD_USD": {
+   "adx": 15.93471355109153,
+   "atr_pips": 6.2847551457044375,
+   "bar": "2026-10-12T16:00:00",
+   "close": 0.69581,
+   "h4_trend": -1,
+   "prec": 5,
+   "rsi": 32.38515049067853,
+   "setup": "crossover",
+   "spread_pips": 1.2999999999996348,
+   "tradeable": true,
+   "trend": -1
+  },
   "EUR_USD": {
    "adx": 23.633832977772553,
    "atr_pips": 9.856979997350424,
@@ -116,9 +165,48 @@
    "prec": 5,
    "rsi": 27.13416182868933,
    "setup": null,
-   "spread_pips": 1.4999999999987246,
+   "spread_pips": 1.5999999999993797,
    "tradeable": true,
    "trend": -1
+  },
+  "GBP_USD": {
+   "adx": 15.290018396867561,
+   "atr_pips": 10.616733165153317,
+   "bar": "2026-10-12T16:00:00",
+   "close": 1.32076,
+   "h4_trend": -1,
+   "prec": 5,
+   "rsi": 33.99740714098098,
+   "setup": "crossover",
+   "spread_pips": 1.80000000000069,
+   "tradeable": true,
+   "trend": -1
+  },
+  "USD_CAD": {
+   "adx": 13.077934952093358,
+   "atr_pips": 9.730516659972109,
+   "bar": "2026-10-12T16:00:00",
+   "close": 1.42809,
+   "h4_trend": 1,
+   "prec": 5,
+   "rsi": 63.91066067718134,
+   "setup": null,
+   "spread_pips": 1.7999999999984695,
+   "tradeable": true,
+   "trend": 1
+  },
+  "USD_CHF": {
+   "adx": 35.035066650015004,
+   "atr_pips": 7.28000352836036,
+   "bar": "2026-10-12T16:00:00",
+   "close": 0.83462,
+   "h4_trend": 1,
+   "prec": 5,
+   "rsi": 75.9531562284259,
+   "setup": null,
+   "spread_pips": 1.4999999999998348,
+   "tradeable": true,
+   "trend": 1
   },
   "USD_JPY": {
    "adx": 20.200581075779528,
@@ -129,7 +217,7 @@
    "prec": 3,
    "rsi": 65.1508838033442,
    "setup": null,
-   "spread_pips": 1.5999999999991132,
+   "spread_pips": 1.4999999999986358,
    "tradeable": true,
    "trend": 1
   }
@@ -141,7 +229,38 @@
   "wins": 0
  },
  "scoreboard": {},
- "shadow": [],
+ "shadow": [
+  {
+   "bar": "2026-10-12T16:00:00",
+   "dir": -1,
+   "pair": "GBP_USD",
+   "setup": "crossover",
+   "sl": 1.3226233466330306,
+   "tp": 1.317314980050454,
+   "votes": {
+    "Doubt": true,
+    "Momentum": true,
+    "Risk": false,
+    "The Quant": false,
+    "Time": true
+   }
+  },
+  {
+   "bar": "2026-10-12T16:00:00",
+   "dir": -1,
+   "pair": "AUD_USD",
+   "setup": "crossover",
+   "sl": 0.6969269510291409,
+   "tp": 0.6937845734562886,
+   "votes": {
+    "Doubt": true,
+    "Momentum": true,
+    "Risk": false,
+    "The Quant": false,
+    "Time": true
+   }
+  }
+ ],
  "start_balance": 100.0,
  "tg_offset": 79693429,
  "trades": {},
