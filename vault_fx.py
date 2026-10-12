@@ -1697,6 +1697,7 @@ ROOM_JS = r"""
   }
   var t0 = performance.now(), lastT = 0;
   function frame(now) {
+    if (!stage.offsetParent) { requestAnimationFrame(frame); return; }   // hidden (collapsed section): skip work
     var t = (now - t0) / 1000, dt = Math.min(0.05, t - lastT); lastT = t;
     var c = still ? CYCLE - 3 : (D.verdict ? t % CYCLE : 0);
     var deliberating = D.verdict && c < CYCLE - 0.6;
@@ -1905,6 +1906,7 @@ def next_panel(st):
   <div class="cd" id="cd" data-t="{int(t.timestamp())}">--:--</div></div>
   <ol class="ready">{body}</ol>
   <script>(function(){{var e=document.getElementById('cd'),t=+e.dataset.t;function f(){{var s=Math.max(0,Math.round(t-Date.now()/1000));
+  if(Date.now()/1000-t>60)t+=900*Math.ceil((Date.now()/1000-t-60)/900);s=Math.max(0,Math.round(t-Date.now()/1000));
   var h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;e.textContent=s?((h?h+':'+String(m).padStart(2,'0'):m)+':'+String(x).padStart(2,'0')):'voting now';}}f();setInterval(f,1000);}})();</script>
 </section>"""
 
