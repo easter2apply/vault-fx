@@ -42,16 +42,17 @@ STOP_ATR = 2.0               # stop loss = 2 × ATR from entry
 TARGET_ATR = 3.0             # take profit = 3 × ATR from entry (1.5 : 1 reward : risk)
 BREAKEVEN_AT_R = 1.0         # move the stop to entry once the trade is +1R
 COUNCIL_MIN_YES = 4          # a trade needs 4 of 5 YES votes, and Risk must vote YES
-ADX_MIN = 22                 # The Quant wants a trend at least this strong
-MAX_SPREAD_ATR = 0.15        # Risk votes NO if the spread is over 15% of ATR (1-hour setups)
-MAX_SPREAD_ATR_15M = 0.30    # 15-minute candles move less, so the spread allowance is wider
+RELAXED = True               # practice-friendly rules: more trades so the council learns faster (set False for strict)
+ADX_MIN = 18 if RELAXED else 22                  # The Quant wants a trend at least this strong
+MAX_SPREAD_ATR = 0.25 if RELAXED else 0.15       # Risk votes NO if the spread is over this share of ATR (1-hour setups)
+MAX_SPREAD_ATR_15M = 0.50 if RELAXED else 0.30   # 15-minute candles move less, so the allowance is wider
 TRADING_HOURS_UTC = (6, 20)  # London + New York sessions (2 AM – 4 PM ET)
 SESSION_HOURS_UTC = {        # pairs that also trade the Asian session; 20–23 UTC (around the 5 PM ET rollover) stays off
     "USD_JPY": [(6, 20), (23, 24), (0, 6)],
     "AUD_USD": [(6, 20), (23, 24), (0, 6)],
 }
 SHADOW_DAYS = 7              # rejected setups are scored for up to a week
-COUNCIL_MIN_SHARE = 0.75     # weighted YES share needed (equal weights: 4 of 5); learning shifts the weights
+COUNCIL_MIN_SHARE = 0.6 if RELAXED else 0.75   # weighted YES share (equal weights: 3 of 5 relaxed, 4 of 5 strict); Risk always vetoes
 
 # News filter: no new trades from 60 min before to 30 min after a high-impact release for either currency
 NEWS_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
@@ -68,6 +69,10 @@ BENCH_MIN = 20               # a pair + setup combo is benched if its last 20 re
 REPORT_HOUR_ET = 17
 WEEKLY_DAY = 4               # weekly report on Friday (Mon=0)
 
+LONDON_BREAKOUT = True       # trade the break of the overnight (Asian) range when London opens
+LB_RANGE_UTC = (0, 7)        # overnight box: 8 PM – 3 AM ET
+LB_WINDOW_UTC = (7, 10)      # breakouts count from 3 AM to 6 AM ET
+LB_PAIRS = ["EUR_USD", "GBP_USD", "USD_CHF", "USD_CAD", "AUD_USD", "USD_JPY"]
 FULL_SCAN_MIN = 5            # check all pairs every 5 minutes (votes happen on each 15-min and 1-hour candle close)
 DEPLOY_EVERY_MIN = 14        # republish the dashboard at most ~4×/hour unless something happened (the live feed updates anyway)
 STATE_FILE = "fx_state.json"
@@ -294,10 +299,14 @@ def council(a, spread, risk_ok, risk_why, now_utc, pair=None):
         ok = rs is not None and rs <= a.get("spread_max", MAX_SPREAD_ATR)
         v["Risk"] = (ok, f"spread is {rs:.0%} of ATR" if rs is not None else "no ATR yet")
     m, mp = a["macd"], a["macd_prev"]
-    mom_ok = (m > 0 and m >= mp) if d == 1 else (m < 0 and m <= mp)
-    v["Momentum"] = (mom_ok, f"MACD {'building' if mom_ok else 'not confirming'} {'up' if d == 1 else 'down'}")
+    if RELAXED:     # "not against us": on our side of zero, or turning our way
+        mom_ok = (m > 0 or m > mp) if d == 1 else (m < 0 or m < mp)
+        v["Momentum"] = (mom_ok, f"MACD {'with us' if mom_ok else 'against us'} ({'up' if d == 1 else 'down'})")
+    else:
+        mom_ok = (m > 0 and m >= mp) if d == 1 else (m < 0 and m <= mp)
+        v["Momentum"] = (mom_ok, f"MACD {'building' if mom_ok else 'not confirming'} {'up' if d == 1 else 'down'}")
     r = a["rsi"] or 50
-    rsi_ok = (45 <= r <= 70) if d == 1 else (30 <= r <= 55)
+    rsi_ok = ((40 <= r <= 75) if d == 1 else (25 <= r <= 60)) if RELAXED else ((45 <= r <= 70) if d == 1 else (30 <= r <= 55))
     open_now = in_session(pair, now_utc)
     v["Time"] = (rsi_ok and open_now,
                  f"RSI {r:.0f}" + ("" if rsi_ok else " (stretched)") + ("" if open_now else ", outside trading hours"))
@@ -305,6 +314,49 @@ def council(a, spread, risk_ok, risk_why, now_utc, pair=None):
     big = big and a.get("extra_trend", d) == d
     lbl = a.get("htf_label", "4-hour trend")
     v["Doubt"] = (big, f"{lbl} {('agree' if big else 'disagree') if 'and' in lbl else ('agrees' if big else 'disagrees')}")
+    return v
+
+
+def london_breakout(pair, m15, h1a, spread, now_utc):
+    """A breakout of today's Asian-session box on a completed 15-min candle, or None."""
+    if not LONDON_BREAKOUT or pair not in LB_PAIRS or not m15:
+        return None
+    day = now_utc.strftime("%Y-%m-%d")
+    lo_h, hi_h = LB_RANGE_UTC
+    box = [x for x in m15 if x["t"][:10] == day and lo_h <= int(x["t"][11:13]) < hi_h]
+    if len(box) < 16:
+        return None
+    last = m15[-1]
+    lh = int(last["t"][11:13])
+    if last["t"][:10] != day or not (LB_WINDOW_UTC[0] <= lh < LB_WINDOW_UTC[1]):
+        return None
+    top, bot = max(x["h"] for x in box), min(x["l"] for x in box)
+    size = top - bot
+    buf = size * 0.1
+    if last["c"] > top + buf:
+        d = 1
+    elif last["c"] < bot - buf:
+        d = -1
+    else:
+        return None
+    mid = (top + bot) / 2
+    body = abs(last["c"] - last["o"]) / max(last["h"] - last["l"], 1e-9)
+    return {"time": last["t"], "setup": "London breakout", "trend": d, "close": last["c"], "atr": size,
+            "sl_price": mid, "box": (bot, top), "size": size, "body": body, "spread": spread,
+            "h1_trend": h1a["trend"], "h1_adx": h1a["adx"] or 0}
+
+
+def council_breakout(b, risk_ok, risk_why, now_utc, pair, inf):
+    d, v = b["trend"], {}
+    pipsz = 10 ** int(inf.get("pipLocation", -4))
+    size_p = b["size"] / pipsz
+    ok_size = b["size"] >= 4 * max(b["spread"], 1e-9) and size_p <= 80
+    v["The Quant"] = (ok_size, f"overnight box is {size_p:.0f} pips ({b['size'] / max(b['spread'], 1e-9):.0f}× the spread)")
+    v["Risk"] = (False, risk_why) if not risk_ok else (True, "within limits")
+    v["Momentum"] = (b["body"] >= 0.5, f"breakout candle {'closed strong' if b['body'] >= 0.5 else 'has a long wick'} ({b['body']:.0%} body)")
+    v["Time"] = (in_session(pair, now_utc), "London is opening" if in_session(pair, now_utc) else "outside trading hours")
+    against = b["h1_trend"] != d and b["h1_adx"] >= 25
+    v["Doubt"] = (not against, "1-hour trend is strongly against it" if against else "1-hour trend isn't fighting it")
     return v
 
 
@@ -601,6 +653,9 @@ def run(log, full=True):
                         tg.say(f"Couldn't close {NAMES.get(t['instrument'], t['instrument'])}: {e}")
                 st["paused"] = "after /closeall"
                 tg.say(f"🧯 Closed {n} trade(s) and paused. /resume when you're ready.")
+            elif cmd == "/testtrade":
+                st["test_pending"] = True
+                tg.say("🧪 Got it. On this run I'll place a 1-unit EUR/USD practice trade with a stop and target, close it right away, and report back.")
             elif cmd in ("/status", "/start"):
                 st["_status_requested"] = True
         if not st.get("welcomed") and tg.chat():
@@ -609,7 +664,7 @@ def run(log, full=True):
                    "and I trade when it approves.\n\n"
                    "Commands (I read them every 5 min):\n/status – account and open trades\n"
                    "/pause – stop opening new trades\n/resume – start again\n/closeall – close every open trade\n"
-                   "/live – turn the live council debate on or off")
+                   "/live – turn the live council debate on or off\n/testtrade – place and close a tiny practice trade to prove orders work")
             st["welcomed"] = True
 
     # 1) safety limits
@@ -739,9 +794,12 @@ def run(log, full=True):
                              "close": a["close"], "prec": prec, "setup": a["setup"], "bar": a["time"],
                              "tradeable": bool(p.get("tradeable", False)),
                              "chg": (a["close"] - h1[-25]["c"]) / h1[-25]["c"] * 100 if len(h1) > 25 else 0}
+        lbk = london_breakout(pair, m15, a, spread, now) if len(m15) >= 40 else None
+        if lbk and st.setdefault("lb_done", {}).get(pair) != now.strftime("%Y-%m-%d"):
+            tfs.append(("LB", lbk, m15))
         best = None
         for tf, at, _ in tfs:
-            if not at["atr"]:
+            if tf == "LB" or not at["atr"]:
                 continue
             hyp = council(at, spread, True, "", now, pair)         # "if a setup appeared now, how would they vote?"
             passed = sum(1 for o, _ in hyp.values() if o is True) + (1 if at["setup"] else 0)
@@ -756,7 +814,7 @@ def run(log, full=True):
 
         # score rejected setups whose stop or target has been reached
         for sh in [s for s in st["shadow"] if s["pair"] == pair]:
-            later = [x for x in (m15 if sh.get("tf") == "M15" else h1) if x["t"] > sh["bar"]]
+            later = [x for x in (m15 if sh.get("tf") in ("M15", "LB") else h1) if x["t"] > sh["bar"]]
             hit = None
             for x in later:
                 hit_sl = (x["l"] <= sh["sl"]) if sh["dir"] == 1 else (x["h"] >= sh["sl"])
@@ -808,12 +866,20 @@ def run(log, full=True):
             if bench is not None:
                 reasons.append(f"benched: {a['setup']} setups on {NAMES[pair]} have been losing ({bench:+.2f}R)")
             today["setups"] += 1
-            votes = council(a, spread, not reasons, "; ".join(reasons), now, pair)
+            if tf == "LB":
+                st.setdefault("lb_done", {})[pair] = now.strftime("%Y-%m-%d")     # one breakout decision per pair per day
+                votes = council_breakout(a, not reasons, "; ".join(reasons), now, pair, inf)
+            else:
+                votes = council(a, spread, not reasons, "; ".join(reasons), now, pair)
             d = a["trend"]
             entry = ask if d == 1 else bid
             entry = entry or a["close"]
-            sl = entry - d * STOP_ATR * a["atr"]
-            tp = entry + d * TARGET_ATR * a["atr"]
+            if a.get("sl_price") is not None:
+                sl = a["sl_price"]
+                tp = entry + d * (TARGET_ATR / STOP_ATR) * abs(entry - sl)
+            else:
+                sl = entry - d * STOP_ATR * a["atr"]
+                tp = entry + d * TARGET_ATR * a["atr"]
             yes, no = tally(votes)
             ok = approved(votes, voter_weights(st))
             label = f"{NAMES[pair]} {'BUY' if d == 1 else 'SELL'} ({a['setup']})"
@@ -909,6 +975,36 @@ def run(log, full=True):
         feed_add(st, "scan", f"Scanned {len(notes)} market{'s' if len(notes) != 1 else ''}: {setups} setup{'s' if setups != 1 else ''} on the latest candle",
                  lines=notes)
 
+    # 3b) test trade on request
+    if st.get("test_pending"):
+        tp_ = prices.get("EUR_USD", {})
+        if not tp_.get("tradeable"):
+            if not st.get("test_waiting_said") and tg:
+                tg.say("🧪 Test trade waiting: EUR/USD is closed right now. I'll try again when it reopens.")
+            st["test_waiting_said"] = True
+        else:
+            st.pop("test_waiting_said", None)
+            ask_ = float(tp_["asks"][0]["price"])
+            try:
+                res = api.market_order("EUR_USD", 1, f"{ask_ - 0.0050:.5f}", f"{ask_ + 0.0050:.5f}")
+                opened = (res.get("orderFillTransaction") or {}).get("tradeOpened") or {}
+                if not opened:
+                    raise ApiError((res.get("orderCancelTransaction") or {}).get("reason", "not filled"))
+                tid = str(opened["tradeID"])
+                closed = api.close(tid)
+                cfill = closed.get("orderFillTransaction") or {}
+                msg = (f"✅ Test trade worked.\nOpened BUY 1 unit EUR/USD at {float(opened.get('price', ask_)):.5f} "
+                       f"(stop and target attached), closed at {float(cfill.get('price', 0) or 0):.5f}. "
+                       f"Result: {money(float(cfill.get('pl', 0) or 0))}.\nOrders, stops and closing all work.")
+                feed_add(st, "event", "Test trade", who="Chair", ok=True, text=msg.replace("\n", " "))
+                log.append("Test trade: OK")
+            except ApiError as e:
+                msg = f"❌ Test trade failed: {e}\nThat tells us exactly what to fix. Send me this message."
+                log.append(f"Test trade failed ({e})")
+            if tg:
+                tg.say(msg)
+            st["test_pending"] = False
+
     # 4) status reply
     if tg and st.pop("_status_requested", False):
         lines = [f"📊 {OANDA_ENV.upper()} bankroll: ${nav:,.2f}",
@@ -919,6 +1015,13 @@ def run(log, full=True):
         if not st["trades"]:
             lines.append("No open trades.")
         tg.say("\n".join(lines))
+
+    now_live = [p for p in PAIRS if in_session(p, now)]
+    if now_live:
+        st.pop("recess", None)
+    else:
+        nt, _ = next_vote(now)
+        st["recess"] = "resumes " + nt.astimezone(LOCAL_TZ).strftime("%a %I:%M %p ET").replace(" 0", " ")
 
     # 5) daily / weekly reports
     if tg:
@@ -1226,7 +1329,7 @@ def council_room(state):
         stamp = ""
     data = json.dumps({"voters": voters, "verdict": verdict, "approved": bool(lv and lv["approved"]),
                        "title": (lv or {}).get("label"), "chart": (lv or {}).get("chart"),
-                       "ticker": state.get("ticker", [])})
+                       "ticker": state.get("ticker", []), "recess": state.get("recess")})
     script = ROOM_JS.replace("__DATA__", data.replace("</", "<\\/"))
     return f"""<section class="room" id="room3d" aria-label="Council room">
   <div class="roomhead">
@@ -1248,6 +1351,7 @@ def council_room(state):
 ROOM_JS = r"""
 (function () {
   var D = __DATA__;
+  if (D.recess) D.verdict = null;          // court adjourned: everyone stays seated
   var room = document.getElementById('room3d'), stage = document.getElementById('stage3d'), tip = document.getElementById('tip3d');
   var stampEl = stage.querySelector('.stamp3d');
   if (!window.THREE) return;
@@ -1341,18 +1445,17 @@ ROOM_JS = r"""
     new THREE.MeshBasicMaterial({ map: wallTex, side: THREE.BackSide }));
   at(wall, 0, 2.6, 1.5);
   var tickerText = (D.ticker && D.ticker.length) ? D.ticker.map(function (t) {
-    return t.s + ' ' + t.p + ' ' + (t.c >= 0 ? '▲' : '▼') + Math.abs(t.c).toFixed(2) + '%'; }).join('     ') : 'THE COUNCIL  ·  IN SESSION';
+    return t.s + ' ' + t.p + ' ' + (t.c >= 0 ? '▲' : '▼') + Math.abs(t.c).toFixed(2) + '%'; }).join('     ') : (D.recess ? 'COURT ADJOURNED  ·  ' + D.recess.toUpperCase() : 'THE COUNCIL  ·  IN SESSION');
   var tickCanvas = document.createElement('canvas'); tickCanvas.width = 2048; tickCanvas.height = 64;
   (function () {
     var x = tickCanvas.getContext('2d'); x.fillStyle = '#0b1022'; x.fillRect(0, 0, 2048, 64);
     x.fillStyle = 'rgba(56,225,255,0.9)'; x.fillRect(0, 0, 2048, 2); x.fillRect(0, 62, 2048, 2);
     x.font = '600 30px ui-monospace, Menlo, monospace'; x.textBaseline = 'middle';
-    var s = tickerText + '          ', w = x.measureText(s).width, pos = 0;
-    while (pos < 2048) {
-      var parts = s.split(/(▲[\d.]+%|▼[\d.]+%)/);
-      parts.forEach(function (pt) { if (!pt) return; x.fillStyle = pt[0] === '▲' ? '#53f0a6' : pt[0] === '▼' ? '#ff6b7c' : '#cfe3ff';
+    var s = tickerText + '     ·     ', w = x.measureText(s).width, n = Math.max(1, Math.floor(2048 / w)), step = 2048 / n;
+    for (var rep = 0; rep < n; rep++) {
+      var pos = rep * step;
+      s.split(/(▲[\d.]+%|▼[\d.]+%)/).forEach(function (pt) { if (!pt) return; x.fillStyle = pt[0] === '▲' ? '#53f0a6' : pt[0] === '▼' ? '#ff6b7c' : '#cfe3ff';
         x.fillText(pt, pos, 34); pos += x.measureText(pt).width; });
-      if (w <= 0) break;
     }
   })();
   var tickTex = new THREE.CanvasTexture(tickCanvas); tickTex.wrapS = THREE.RepeatWrapping; tickTex.repeat.set(-2, 1);
@@ -1384,9 +1487,15 @@ ROOM_JS = r"""
     x.strokeStyle = 'rgba(56,225,255,0.9)'; x.lineWidth = 4; x.strokeRect(6, 6, W - 12, H - 12);
     for (var gy = 1; gy < 5; gy++) { x.strokeStyle = 'rgba(56,225,255,0.12)'; x.lineWidth = 1; x.beginPath(); x.moveTo(30, 90 + gy * 88); x.lineTo(W - 30, 90 + gy * 88); x.stroke(); }
     x.fillStyle = '#cff6ff'; x.font = '700 46px ui-monospace, Menlo, monospace'; x.textBaseline = 'middle';
-    x.fillText(D.title ? String(D.title).slice(0, 34) : 'COURT IN RECESS', 34, 50);
+    x.fillText(D.recess ? 'THE COUNCIL' : D.title ? String(D.title).slice(0, 34) : 'COURT IN RECESS', 34, 50);
     var ch = D.chart;
-    if (ch && ch.closes && ch.closes.length > 2) {
+    if (D.recess) {
+      x.fillStyle = 'rgba(8,30,48,0.6)'; x.fillRect(12, 80, W - 24, H - 92);
+      x.fillStyle = '#f4c84a'; x.font = '800 64px ui-monospace, Menlo, monospace'; x.textAlign = 'center';
+      x.fillText('COURT ADJOURNED', W / 2, H / 2 - 10);
+      x.fillStyle = '#cff6ff'; x.font = '500 38px ui-monospace, Menlo, monospace'; x.fillText(String(D.recess), W / 2, H / 2 + 60);
+      x.textAlign = 'left';
+    } else if (ch && ch.closes && ch.closes.length > 2) {
       var vals = ch.closes.slice(), lv = [ch.entry, ch.sl, ch.tp].filter(function (v) { return v != null; });
       var lo = Math.min.apply(null, vals.concat(lv)), hi = Math.max.apply(null, vals.concat(lv)), pad = (hi - lo) * 0.08 || 1e-4;
       lo -= pad; hi += pad;
@@ -1426,14 +1535,20 @@ ROOM_JS = r"""
   at(M(new THREE.PlaneGeometry(1.3, 0.16), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(plateC) })), 0, 1.45, -4.79);
 
   var judge = new THREE.Group(); judge.position.set(0, 0.8, -5.75); world.add(judge);
-  var ROBE = new THREE.MeshStandardMaterial({ color: 0x0d0f1c, roughness: 0.55, metalness: 0.3 });
+  var ROBE = new THREE.MeshStandardMaterial({ color: 0x1b2433, roughness: 0.7, metalness: 0.1 });
   judge.add(shadowy(M(new THREE.ConeGeometry(0.46, 1.6, 24), ROBE), true, false)).position.y = 1.0;
   var trim = M(new THREE.TorusGeometry(0.2, 0.025, 8, 24), glowMat(0xf4c84a)); trim.rotation.x = Math.PI / 2; trim.position.y = 1.72; judge.add(trim);
   var jhead = new THREE.Group(); jhead.position.y = 1.96; judge.add(jhead);
-  jhead.add(shadowy(M(new THREE.SphereGeometry(0.21, 24, 16), METAL), true, false));
-  var jvisor = M(new THREE.BoxGeometry(0.28, 0.05, 0.06), glowMat(0xf4c84a)); jvisor.position.set(0, 0.02, 0.18); jhead.add(jvisor);
-  jhead.add(glow(0xf4c84a, 0.6, 0.6)).position.set(0, 0.02, 0.22);
-  var halo = M(new THREE.TorusGeometry(0.3, 0.012, 6, 48), addv(0xf4c84a, 0.9)); halo.rotation.x = Math.PI / 2; halo.position.y = 0.36; jhead.add(halo);
+  var JSKIN = new THREE.MeshStandardMaterial({ color: 0xa86b45, roughness: 0.65 });
+  jhead.add(shadowy(M(new THREE.SphereGeometry(0.24, 24, 16), JSKIN), true, false));
+  [-1, 1].forEach(function (sd) { var e = M(new THREE.SphereGeometry(0.03, 8, 6), new THREE.MeshBasicMaterial({ color: 0x111111 })); e.position.set(sd * 0.085, 0.02, 0.215); jhead.add(e);
+    var br = M(new THREE.BoxGeometry(0.1, 0.025, 0.02), new THREE.MeshStandardMaterial({ color: 0xdddddd })); br.position.set(sd * 0.085, 0.09, 0.22); jhead.add(br); });
+  var jcap = M(new THREE.CylinderGeometry(0.28, 0.23, 0.13, 28), new THREE.MeshStandardMaterial({ color: 0x1b2433, roughness: 0.6 })); jcap.position.y = 0.21; jhead.add(jcap);
+  var braid = M(new THREE.CylinderGeometry(0.235, 0.235, 0.05, 28), new THREE.MeshStandardMaterial({ color: 0xd9b44a, metalness: 0.85, roughness: 0.3 })); braid.position.y = 0.16; jhead.add(braid);
+  var jpeak = M(new THREE.CylinderGeometry(0.18, 0.18, 0.015, 24, 1, false, -Math.PI / 2, Math.PI), new THREE.MeshStandardMaterial({ color: 0x0b0b0e })); jpeak.position.set(0, 0.14, 0.13); jpeak.rotation.x = 0.25; jhead.add(jpeak);
+  var halo = new THREE.Group(); jhead.add(halo);
+  [-1, 1].forEach(function (sd) { for (var k = 0; k < 4; k++) { var star = M(new THREE.OctahedronGeometry(0.025, 0), new THREE.MeshBasicMaterial({ color: 0xf4c84a }));
+    star.position.set(sd * (0.36 + k * 0.0) , 1.62 + 0, 0.05 - k * 0.06); judge.add(star); } });
   var arm = new THREE.Group(); arm.position.set(0.32, 1.55, 0.12); judge.add(arm);
   var fore = M(new THREE.CylinderGeometry(0.05, 0.045, 0.5, 10), ROBE); fore.rotation.x = Math.PI / 2; fore.position.z = 0.25; arm.add(fore);
   var gavel = new THREE.Group(); gavel.position.set(0, 0, 0.5); arm.add(gavel);
@@ -1453,112 +1568,121 @@ ROOM_JS = r"""
     depthWrite: false, blending: THREE.AdditiveBlending }));
   world.add(dust);
 
+  // ── the council as little military officers: big heads, uniforms, unique headgear and insignia
   var COLORS = { 'The Quant': 0x3ee6a1, 'Risk': 0xff5468, 'Momentum': 0xffb03b, 'Time': 0x4cb7ff, 'Doubt': 0xc9a7ff };
-  function limb(g, x, y, len, r, mat) {
+  function std(c, r, m) { return new THREE.MeshStandardMaterial({ color: c, roughness: r === undefined ? 0.75 : r, metalness: m || 0 }); }
+  var BOOT = std(0x15130f, 0.45, 0.2), GOLD = std(0xd9b44a, 0.3, 0.85), BLACK = std(0x0b0b0e, 0.6), WHITE = std(0xf2f2ee, 0.5);
+  var EYE = new THREE.MeshBasicMaterial({ color: 0x111111 });
+  function bar(parent, w, h, x, y, z, rz, mat) { var b = M(new THREE.BoxGeometry(w, h, 0.03), mat); b.position.set(x, y, z); b.rotation.z = rz || 0; parent.add(b); return b; }
+  // two-part limb: shoulder/hip → elbow/knee → hand/boot
+  function limb(g, x, y, len, r, mat, endMat) {
     var piv = new THREE.Group(); piv.position.set(x, y, 0);
-    var seg = M(new THREE.CylinderGeometry(r, r * 0.8, len, 10), mat || METAL2); seg.position.y = -len / 2; piv.add(seg);
-    var end = M(new THREE.SphereGeometry(r * 1.15, 10, 8), METAL); end.position.y = -len; piv.add(end);
+    var half = len / 2, leg = y < 1.0;
+    var up = M(new THREE.CylinderGeometry(r * 1.08, r * 0.95, half, 12), mat); up.position.y = -half / 2; piv.add(up);
+    var joint = new THREE.Group(); joint.position.y = -half; piv.add(joint);
+    joint.add(M(new THREE.SphereGeometry(r * 1.0, 10, 8), mat));
+    var lo = M(new THREE.CylinderGeometry(r * 0.95, r * 0.85, half, 12), leg ? BOOT : mat); lo.position.y = -half / 2; joint.add(lo);
+    if (leg) { var boot = M(new THREE.BoxGeometry(r * 2.3, r * 1.3, r * 3.8), BOOT); boot.position.set(0, -half - r * 0.25, r * 0.9); joint.add(boot); }
+    else { var hand = M(new THREE.SphereGeometry(r * 1.15, 10, 8), endMat); hand.position.y = -half - r * 0.3; joint.add(hand); }
+    piv.userData.joint = joint;
     g.add(piv); return piv;
   }
-  function bar(parent, w, h, x, y, z, rz, mat) { var b = M(new THREE.BoxGeometry(w, h, 0.03), mat); b.position.set(x, y, z); b.rotation.z = rz || 0; parent.add(b); return b; }
-
+  // shared body: boots, trousers, tunic, belt, collar, big head with eyes/brows/mouth
+  function soldier(g, u, o) {
+    var TUNIC = std(o.tunic, 0.8), PANTS = std(o.pants || o.tunic, 0.8), SKIN = std(o.skin, 0.65);
+    var w = o.wide || 1;
+    u.legL = limb(g, -0.1 * w, 0.62, 0.6, 0.065 * w, PANTS); u.legR = limb(g, 0.1 * w, 0.62, 0.6, 0.065 * w, PANTS);
+    var torso = M(new THREE.BoxGeometry(0.44 * w, 0.58, 0.28 * Math.max(1, w * 0.9)), TUNIC); torso.position.y = 0.93; g.add(torso);
+    var belly = M(new THREE.BoxGeometry(0.46 * w, 0.08, 0.3 * Math.max(1, w * 0.9)), BLACK); belly.position.y = 0.72; g.add(belly);
+    var buckle = M(new THREE.BoxGeometry(0.07, 0.06, 0.02), GOLD); buckle.position.set(0, 0.72, 0.16 * Math.max(1, w * 0.9)); g.add(buckle);
+    for (var b = 0; b < 3; b++) { var btn = M(new THREE.SphereGeometry(0.018, 8, 6), GOLD); btn.position.set(0, 0.84 + b * 0.1, 0.145 * Math.max(1, w * 0.9)); g.add(btn); }
+    [-1, 1].forEach(function (sd) {                                   // epaulettes
+      var ep = M(new THREE.BoxGeometry(0.13, 0.03, 0.2), o.epaulette ? GOLD : TUNIC); ep.position.set(sd * 0.2 * w, 1.23, 0); g.add(ep);
+    });
+    var badge = M(new THREE.BoxGeometry(0.08, 0.06, 0.02), new THREE.MeshBasicMaterial({ color: u.col }));   // unit patch in their color
+    badge.position.set(-0.12 * w, 1.06, 0.145 * Math.max(1, w * 0.9)); g.add(badge); u.patch = badge;
+    if (o.medals) for (var m = 0; m < o.medals; m++) {
+      var md = M(new THREE.BoxGeometry(0.035, 0.05, 0.02), [GOLD, std(0xb03a2e), std(0x2e5cb0)][m % 3]);
+      md.position.set(0.07 * w + m * 0.045, 1.07, 0.145 * Math.max(1, w * 0.9)); g.add(md);
+    }
+    u.armL = limb(g, -0.27 * w, 1.2, 0.56, 0.055 * w, TUNIC, SKIN); u.armR = limb(g, 0.27 * w, 1.2, 0.56, 0.055 * w, TUNIC, SKIN);
+    var neck = M(new THREE.CylinderGeometry(0.07, 0.08, 0.08, 12), SKIN); neck.position.y = 1.27; g.add(neck);
+    var head = new THREE.Group(); head.position.y = 1.5; g.add(head); u.head = head;
+    var skull = M(new THREE.SphereGeometry(0.235, 28, 20), SKIN); skull.scale.set(1, 1.05, 0.98); head.add(skull);
+    [-1, 1].forEach(function (sd) { var ear = M(new THREE.SphereGeometry(0.05, 10, 8), SKIN); ear.position.set(sd * 0.235, 0, 0); ear.scale.set(0.5, 1, 0.8); head.add(ear); });
+    u.glows = [];
+    [-1, 1].forEach(function (sd) {
+      var e = M(new THREE.SphereGeometry(0.03, 10, 8), EYE); e.position.set(sd * 0.085, 0.02, 0.215); head.add(e); u.glows.push(e);
+      var br = bar(head, 0.09, 0.022, sd * 0.085, 0.09 + (o.browUp && sd > 0 ? 0.03 : 0), 0.22, sd * (o.browTilt || 0), BLACK);
+    });
+    var mouth = M(new THREE.BoxGeometry(o.mouthW || 0.08, 0.018, 0.02), std(0x5a2a22)); mouth.position.set(o.mouthX || 0, -0.1, 0.22); mouth.rotation.z = o.mouthTilt || 0; head.add(mouth); u.mouth = mouth;
+    var nose = M(new THREE.SphereGeometry(0.028, 8, 6), SKIN); nose.position.set(0, -0.03, 0.235); head.add(nose);
+    return { head: head, TUNIC: TUNIC, SKIN: SKIN };
+  }
   var BUILD = {
-    // tall and precise: slab body, square head, terminal-style face
+    // intelligence officer: olive uniform, beret, round glasses, tablet
     'The Quant': function (g, u, col) {
-      var G = glowMat(col);
-      var torso = M(new THREE.BoxGeometry(0.42, 0.78, 0.26), METAL); torso.position.y = 1.0; g.add(torso);
-      bar(g, 0.3, 0.025, 0, 1.22, 0.135, 0, G); bar(g, 0.3, 0.025, 0, 1.15, 0.135, 0, G); bar(g, 0.18, 0.025, -0.06, 1.08, 0.135, 0, G);
-      u.legL = limb(g, -0.11, 0.62, 0.58, 0.05); u.legR = limb(g, 0.11, 0.62, 0.58, 0.05);
-      u.armL = limb(g, -0.27, 1.35, 0.6, 0.04); u.armR = limb(g, 0.27, 1.35, 0.6, 0.04);
-      var head = new THREE.Group(); head.position.y = 1.68; g.add(head); u.head = head;
-      head.add(M(new THREE.BoxGeometry(0.36, 0.32, 0.3), METAL));
-      var screen = M(new THREE.BoxGeometry(0.3, 0.22, 0.01), new THREE.MeshBasicMaterial({ color: 0x07140f })); screen.position.z = 0.152; head.add(screen);
-      bar(head, 0.06, 0.06, -0.07, 0.03, 0.16, 0, G); bar(head, 0.06, 0.06, 0.07, 0.03, 0.16, 0, G);   // square eyes
-      bar(head, 0.12, 0.015, 0, -0.06, 0.16, 0, G);                                                   // flat line mouth
-      var ring = M(new THREE.TorusGeometry(0.34, 0.01, 6, 48), basic(col, 0.85)); ring.rotation.x = Math.PI / 2.3; head.add(ring); u.spin = ring;
+      var s = soldier(g, u, { tunic: 0x4b5a3a, skin: 0xe0ac69, medals: 1 }), h = s.head;
+      var beret = M(new THREE.SphereGeometry(0.25, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), std(0x1f5e3a)); beret.scale.set(1.05, 0.45, 1.05);
+      beret.position.set(0.03, 0.12, -0.01); beret.rotation.z = -0.25; h.add(beret);
+      var flash = M(new THREE.BoxGeometry(0.05, 0.05, 0.02), GOLD); flash.position.set(-0.11, 0.18, 0.18); h.add(flash);
+      [-1, 1].forEach(function (sd) { var lens = M(new THREE.TorusGeometry(0.05, 0.008, 6, 20), BLACK); lens.position.set(sd * 0.085, 0.02, 0.23); h.add(lens); });
+      var tab = M(new THREE.BoxGeometry(0.2, 0.26, 0.02), BLACK); tab.position.set(0, -0.06, 0.08); tab.rotation.x = -0.8;
+      var scr = M(new THREE.PlaneGeometry(0.17, 0.22), new THREE.MeshBasicMaterial({ color: col })); scr.position.z = 0.012; tab.add(scr);
+      u.armL.userData.joint.add(tab);
     },
-    // heavy guardian: broad armored chest, shoulder spikes, angular head, angry V visor
+    // military police / drill sergeant: broad, campaign hat, red armband, scowl
     'Risk': function (g, u, col) {
-      var G = glowMat(col);
-      var chest = M(new THREE.CylinderGeometry(0.42, 0.26, 0.7, 6), METAL); chest.position.y = 1.0; g.add(chest);
-      [-1, 1].forEach(function (sd) {
-        var pad = M(new THREE.SphereGeometry(0.17, 12, 8), METAL2); pad.position.set(0.42 * sd, 1.3, 0); g.add(pad);
-        for (var k = 0; k < 2; k++) { var sp = M(new THREE.ConeGeometry(0.05, 0.2, 8), G); sp.position.set((0.42 + k * 0.08) * sd, 1.45, -0.03 + k * 0.06); sp.rotation.z = -0.5 * sd; g.add(sp); }
-      });
-      u.legL = limb(g, -0.15, 0.64, 0.6, 0.075); u.legR = limb(g, 0.15, 0.64, 0.6, 0.075);
-      u.armL = limb(g, -0.46, 1.25, 0.6, 0.065); u.armR = limb(g, 0.46, 1.25, 0.6, 0.065);
-      var head = new THREE.Group(); head.position.y = 1.6; g.add(head); u.head = head;
-      var skull = M(new THREE.OctahedronGeometry(0.24, 0), METAL); skull.scale.set(1.1, 1.0, 0.95); head.add(skull);
-      bar(head, 0.17, 0.04, -0.075, 0.03, 0.2, -0.38, G); bar(head, 0.17, 0.04, 0.075, 0.03, 0.2, 0.38, G);  // angry V
-      bar(head, 0.1, 0.02, 0, -0.08, 0.19, 0, G);
+      var s = soldier(g, u, { tunic: 0x6b5a3e, pants: 0x4a3f2c, skin: 0x8d5524, wide: 1.22, browTilt: 0.35, mouthW: 0.1, medals: 2 }), h = s.head;
+      var brim = M(new THREE.CylinderGeometry(0.4, 0.4, 0.02, 32), std(0x8a6a3a)); brim.position.y = 0.14; h.add(brim);
+      var crown = M(new THREE.ConeGeometry(0.2, 0.22, 4), std(0x8a6a3a)); crown.position.y = 0.26; crown.rotation.y = Math.PI / 4; h.add(crown);
+      var band = M(new THREE.CylinderGeometry(0.21, 0.21, 0.04, 20), BLACK); band.position.y = 0.17; h.add(band);
+      var arm = M(new THREE.CylinderGeometry(0.075, 0.075, 0.1, 12), new THREE.MeshStandardMaterial({ color: 0xc0262e, roughness: 0.7 }));
+      arm.position.y = -0.1; u.armL.add(arm);
+      var mp = M(new THREE.BoxGeometry(0.05, 0.04, 0.005), WHITE); mp.position.set(0, -0.1, 0.078); u.armL.add(mp);
+      var whistle = M(new THREE.CylinderGeometry(0.012, 0.012, 0.05, 8), GOLD); whistle.position.set(0.1, 1.12, 0.17); whistle.rotation.z = 1.2; g.add(whistle);
     },
-    // lean sprinter: forward-leaning, teardrop head, wraparound visor, swept fins
+    // paratrooper: lean, helmet with goggles, forward-leaning, speed lines when walking
     'Momentum': function (g, u, col) {
-      var G = glowMat(col);
-      var lean = new THREE.Group(); lean.rotation.x = 0.16; g.add(lean);
-      var torso = M(new THREE.CylinderGeometry(0.17, 0.2, 0.74, 16), METAL); torso.position.y = 1.0; lean.add(torso);
-      bar(lean, 0.04, 0.5, 0, 1.0, 0.18, 0, G);
-      u.legL = limb(g, -0.09, 0.62, 0.6, 0.045); u.legR = limb(g, 0.09, 0.62, 0.6, 0.045);
-      u.armL = limb(lean, -0.24, 1.32, 0.58, 0.038); u.armR = limb(lean, 0.24, 1.32, 0.58, 0.038);
-      var head = new THREE.Group(); head.position.set(0, 1.62, 0.1); lean.add(head); u.head = head;
-      var skull = M(new THREE.SphereGeometry(0.19, 24, 16), METAL); skull.scale.set(0.95, 0.95, 1.45); skull.position.z = -0.05; head.add(skull);
-      var visor = M(new THREE.TorusGeometry(0.19, 0.03, 8, 30, Math.PI * 0.9), G); visor.rotation.set(Math.PI / 2, 0, Math.PI * 0.05); visor.position.set(0, 0.02, 0); head.add(visor);
-      [-1, 1].forEach(function (sd) { var fin = M(new THREE.BoxGeometry(0.02, 0.1, 0.28), METAL2); fin.position.set(0.14 * sd, 0.1, -0.2); fin.rotation.x = -0.5; head.add(fin); });
+      var s = soldier(g, u, { tunic: 0x5a4a32, pants: 0x4d4030, skin: 0xc68642, mouthW: 0.1, mouthTilt: -0.15, browUp: true }), h = s.head;
+      var helm = M(new THREE.SphereGeometry(0.27, 24, 14, 0, Math.PI * 2, 0, Math.PI / 2), std(0x4f5a34, 0.85)); helm.position.y = 0.04; h.add(helm);
+      var rim = M(new THREE.TorusGeometry(0.27, 0.02, 6, 32), std(0x4f5a34, 0.85)); rim.rotation.x = Math.PI / 2; rim.position.y = 0.04; h.add(rim);
+      var strap = M(new THREE.BoxGeometry(0.5, 0.035, 0.02), BLACK); strap.position.set(0, 0.17, 0.2); h.add(strap);
+      [-1, 1].forEach(function (sd) { var gg = M(new THREE.CylinderGeometry(0.055, 0.055, 0.04, 16), new THREE.MeshBasicMaterial({ color: col })); gg.rotation.x = Math.PI / 2; gg.position.set(sd * 0.08, 0.17, 0.22); h.add(gg); });
+      var pack = M(new THREE.BoxGeometry(0.34, 0.4, 0.14), std(0x3d4529)); pack.position.set(0, 0.95, -0.21); g.add(pack);
       u.trail = [];
       for (var i = 0; i < 4; i++) { var tp = M(new THREE.SphereGeometry(0.045 - i * 0.008, 8, 6), basic(col, 0.7 - i * 0.15)); world.add(tp); u.trail.push(tp); }
     },
-    // stout and steady: round body, the face IS a clock
+    // navy officer / timekeeper: white peaked cap, navy tunic, glowing wristwatch, stout
     'Time': function (g, u, col) {
-      var G = glowMat(col);
-      var body = M(new THREE.SphereGeometry(0.34, 24, 18), METAL); body.scale.set(1, 1.1, 0.9); body.position.y = 0.95; g.add(body);
-      var belt = M(new THREE.TorusGeometry(0.33, 0.02, 6, 40), G); belt.rotation.x = Math.PI / 2; belt.position.y = 0.92; g.add(belt);
-      u.legL = limb(g, -0.13, 0.62, 0.55, 0.06); u.legR = limb(g, 0.13, 0.62, 0.55, 0.06);
-      u.armL = limb(g, -0.36, 1.12, 0.5, 0.05); u.armR = limb(g, 0.36, 1.12, 0.5, 0.05);
-      var head = new THREE.Group(); head.position.y = 1.6; g.add(head); u.head = head;
-      var rim = M(new THREE.CylinderGeometry(0.27, 0.27, 0.12, 36), METAL); rim.rotation.x = Math.PI / 2; head.add(rim);
-      var face = M(new THREE.CylinderGeometry(0.23, 0.23, 0.02, 36), new THREE.MeshBasicMaterial({ color: 0x0a1424 })); face.rotation.x = Math.PI / 2; face.position.z = 0.06; head.add(face);
-      for (var k = 0; k < 12; k++) { var a = k / 12 * Math.PI * 2, tk = bar(head, 0.012, k % 3 ? 0.03 : 0.06, Math.sin(a) * 0.19, Math.cos(a) * 0.19, 0.075, -a, G); }
-      var hands = new THREE.Group(); hands.position.z = 0.08; head.add(hands); u.hands = hands;
-      bar(hands, 0.018, 0.17, 0, 0.075, 0, 0, G); var hr = bar(hands, 0.12, 0.022, 0.05, 0, 0, 0, G);
-      var gy = M(new THREE.TorusGeometry(0.36, 0.01, 6, 48), basic(col, 0.8)); head.add(gy); u.gyro = gy;
+      var s = soldier(g, u, { tunic: 0x1c2a4a, skin: 0xf1c27d, wide: 1.12, epaulette: true, medals: 2 }), h = s.head;
+      var cap = M(new THREE.CylinderGeometry(0.26, 0.22, 0.12, 28), WHITE); cap.position.y = 0.2; h.add(cap);
+      var band = M(new THREE.CylinderGeometry(0.225, 0.225, 0.05, 28), BLACK); band.position.y = 0.15; h.add(band);
+      var peak = M(new THREE.CylinderGeometry(0.17, 0.17, 0.015, 24, 1, false, -Math.PI / 2, Math.PI), BLACK); peak.position.set(0, 0.13, 0.12); peak.rotation.x = 0.25; h.add(peak);
+      var crest = M(new THREE.SphereGeometry(0.035, 10, 8), GOLD); crest.position.set(0, 0.17, 0.225); h.add(crest);
+      var watch = M(new THREE.CylinderGeometry(0.06, 0.06, 0.03, 16), new THREE.MeshBasicMaterial({ color: col })); watch.rotation.z = Math.PI / 2;
+      watch.position.set(0.06, -0.2, 0); u.armL.userData.joint.add(watch);
+      var hands = new THREE.Group(); hands.position.set(0.078, -0.2, 0); hands.rotation.y = Math.PI / 2; u.armL.userData.joint.add(hands); u.hands = hands;
+      bar(hands, 0.008, 0.045, 0, 0.02, 0, 0, BLACK);
     },
-    // the skeptic: slight hunch, egg head, one glowing monocle eye, one dim squint, raised brow
+    // grizzled colonel: garrison cap tilted, grey mustache, monocle, lots of medals
     'Doubt': function (g, u, col) {
-      var G = glowMat(col), DIM = basic(col, 0.35);
-      var torso = M(new THREE.CylinderGeometry(0.16, 0.24, 0.68, 16), METAL); torso.position.y = 0.95; torso.rotation.x = 0.1; g.add(torso);
-      var coat = M(new THREE.ConeGeometry(0.3, 0.45, 16, 1, true), METAL2); coat.position.y = 0.72; g.add(coat);
-      u.legL = limb(g, -0.09, 0.58, 0.55, 0.045); u.legR = limb(g, 0.09, 0.58, 0.55, 0.045);
-      u.armL = limb(g, -0.22, 1.25, 0.55, 0.038); u.armR = limb(g, 0.22, 1.25, 0.55, 0.038);
-      var head = new THREE.Group(); head.position.set(0, 1.55, 0.05); head.rotation.z = 0.2; g.add(head); u.head = head;
-      var egg = M(new THREE.SphereGeometry(0.2, 24, 18), METAL); egg.scale.set(0.9, 1.3, 0.9); head.add(egg);
-      var mono = M(new THREE.TorusGeometry(0.06, 0.014, 8, 24), G); mono.position.set(0.075, 0.04, 0.17); head.add(mono);
-      var pupil = M(new THREE.SphereGeometry(0.028, 10, 8), G); pupil.position.set(0.075, 0.04, 0.17); head.add(pupil);
-      bar(head, 0.08, 0.015, -0.075, 0.03, 0.175, 0.05, DIM);                    // squinting eye
-      bar(head, 0.1, 0.018, 0.08, 0.14, 0.16, -0.35, G);                       // raised brow
-      bar(head, 0.08, 0.015, 0.0, -0.1, 0.17, -0.15, DIM);                      // crooked mouth
+      var s = soldier(g, u, { tunic: 0x3a3f4a, skin: 0x5c3a21, medals: 4, browUp: true, mouthX: 0.03, mouthTilt: -0.2, epaulette: true }), h = s.head;
+      var cap = M(new THREE.BoxGeometry(0.3, 0.1, 0.4), std(0x2c313b)); cap.position.set(0.04, 0.24, 0); cap.rotation.z = -0.3; h.add(cap);
+      var pip = M(new THREE.BoxGeometry(0.04, 0.04, 0.02), GOLD); pip.position.set(-0.08, 0.27, 0.19); h.add(pip);
+      var stache = M(new THREE.BoxGeometry(0.16, 0.035, 0.04), std(0x9a9a9a)); stache.position.set(0, -0.065, 0.225); h.add(stache);
+      var mono = M(new THREE.TorusGeometry(0.05, 0.01, 6, 20), GOLD); mono.position.set(0.085, 0.02, 0.235); h.add(mono);
+      var chain = M(new THREE.CylinderGeometry(0.004, 0.004, 0.25, 4), GOLD); chain.position.set(0.12, -0.1, 0.22); chain.rotation.z = 0.3; h.add(chain);
+      head_tilt = h; h.rotation.z = 0.12;
     }
   };
+  var head_tilt;
   function agent(name) {
     var col = COLORS[name] || 0xffffff, g = new THREE.Group(), u = g.userData;
+    u.col = col;
     (BUILD[name] || BUILD['Doubt'])(g, u, col);
     var halo = M(new THREE.RingGeometry(0.34, 0.42, 40), basic(col, 0.45)); halo.rotation.x = -Math.PI / 2; halo.position.y = 0.02; g.add(halo); u.halo = halo;
-    u.col = col;
     return g;
-  }
-
-
-  // ── upgraded limbs: shoulder/hip → elbow/knee → hand/foot (overrides the simple one above)
-  function limb(g, x, y, len, r, mat) {
-    var piv = new THREE.Group(); piv.position.set(x, y, 0);
-    var half = len / 2;
-    var up = M(new THREE.CylinderGeometry(r * 1.05, r * 0.9, half, 10), mat || METAL2); up.position.y = -half / 2; piv.add(up);
-    var joint = new THREE.Group(); joint.position.y = -half; piv.add(joint);
-    joint.add(M(new THREE.SphereGeometry(r * 1.2, 10, 8), METAL));
-    var lo = M(new THREE.CylinderGeometry(r * 0.9, r * 0.75, half, 10), mat || METAL2); lo.position.y = -half / 2; joint.add(lo);
-    var end = M(new THREE.SphereGeometry(r * 1.1, 10, 8), METAL); end.position.y = -half; joint.add(end);
-    if (y < 1.0) { var foot = M(new THREE.BoxGeometry(r * 2.4, r * 1.1, r * 3.6), METAL); foot.position.set(0, -half - r * 0.3, r * 0.9); joint.add(foot); }
-    piv.userData.joint = joint;
-    g.add(piv); return piv;
   }
 
   // ── member stations in an arc behind the holotable
@@ -1593,9 +1717,8 @@ ROOM_JS = r"""
     u.i = i; u.seat = seat; u.faceSeat = face; u.yaw = face; u.phase = i * 1.37;
     u.hip = u.legL ? u.legL.position.y : 0.6; u.prev = seat.clone(); u.blinkAt = 1 + i * 0.9;
     // glow parts: the colored visor/face meshes, plus a halo sprite in front of the face
-    u.glows = [];
-    if (u.head) u.head.traverse(function (k) { if (k.isMesh && k.material && k.material.type === 'MeshBasicMaterial' && !k.material.transparent) u.glows.push(k); });
-    var fg = glow(u.col, 0.7, 0.55); fg.position.set(0, 0.02, 0.24); if (u.head) u.head.add(fg); u.faceGlow = fg;
+    u.glows = u.glows || [];
+    var fg = glow(u.col, 0.35, 0.4); if (u.patch) { fg.position.copy(u.patch.position); fg.position.z += 0.03; g.add(fg); } u.faceGlow = fg;
     shadowy(g, true, false);
     g.position.copy(seat); world.add(g); people.push(g);
     // station: sleek chair + console with a screen and a floor ring that lights with the vote
@@ -1742,7 +1865,8 @@ ROOM_JS = r"""
       var blink = (!still && u.blinkEnd && t < u.blinkEnd) ? 0.15 : 1;
       var talk = p.at && p.k > 0.25 && p.k < 1.3 ? 0.5 + 0.5 * Math.sin(t * 22) : 0;
       u.glows.forEach(function (m) { m.scale.y = blink; });
-      u.faceGlow.material.opacity = 0.35 + talk * 0.6; u.faceGlow.scale.setScalar(0.6 + talk * 0.5);
+      u.faceGlow.material.opacity = 0.25 + talk * 0.6; u.faceGlow.scale.setScalar(0.3 + talk * 0.3);
+      if (u.mouth) u.mouth.scale.y = 1 + talk * 3.5;
       u.halo.visible = p.sit < 0.5;
       var sel = picked === i ? 1.08 : 1; g.scale.setScalar(g.scale.x + (sel - g.scale.x) * 0.2);
       u.halo.material.opacity = picked === i ? 0.95 : 0.4;
@@ -1868,6 +1992,29 @@ FEED_JS = r"""
   setInterval(poll, 60000);
 })();
 """
+
+
+def recess_panel(st):
+    now = dt.datetime.now(dt.timezone.utc)
+    live = [p for p in PAIRS if in_session(p, now)]
+    if live and len(live) == len(PAIRS):
+        return ""
+    t, nxt = next_vote(now)
+    if live:
+        names = ", ".join(NAMES[p] for p in live)
+        return f"""<section class="recess night"><div><span class="rb">NIGHT SESSION</span>
+          <b>Only {html.escape(names)} {'is' if len(live) == 1 else 'are'} in session</b>
+          <p>The other pairs wait for London. Full court resumes at 2:00 AM ET.</p></div></section>"""
+    resume = t.astimezone(LOCAL_TZ)
+    sess = "Tokyo opens" if t.hour in (22, 23, 0) else "London opens" if t.hour in (6, 7) else "session opens"
+    return f"""<section class="recess"><div><span class="rb">⚖️ COURT IS OUT OF SESSION</span>
+      <b>Markets are quiet or closed. The council resumes when {sess}.</b>
+      <p>Back at {resume.strftime('%a %I:%M %p').replace(' 0', ' ')} ET. Open trades keep their stops and still get checked.</p></div>
+      <div class="rc" id="rc" data-t="{int(t.timestamp())}">--:--:--</div>
+      <script>(function(){{var e=document.getElementById('rc'),t=+e.dataset.t;function f(){{var s=Math.max(0,Math.round(t-Date.now()/1000));
+      var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60),x=s%60;
+      e.textContent=s?((d?d+'d ':'')+h+'h '+String(m).padStart(2,'0')+'m '+String(x).padStart(2,'0')+'s'):'back in session';}}f();setInterval(f,1000);}})();</script>
+    </section>"""
 
 
 def next_panel(st):
@@ -2087,6 +2234,12 @@ td.mkt small {{ display:block; color:var(--muted); font-size:12px }}
 .lgrid div {{ border:1px solid var(--line); border-radius:8px; padding:8px 10px; display:grid; gap:2px }}
 .lgrid span {{ font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted) }}
 .lgrid b {{ font-size:20px; font-variant-numeric:tabular-nums }} .lgrid small {{ color:var(--muted); font-size:11px }}
+.recess {{ display:flex; justify-content:space-between; align-items:center; gap:14px; flex-wrap:wrap; padding:16px;
+  border-radius:12px; border:1px solid #f4c84a66; background:linear-gradient(135deg,#2a1f08,#15102a) }}
+.recess.night {{ border-color:#4cb7ff66; background:linear-gradient(135deg,#0b1a33,#15102a) }}
+.recess div {{ display:grid; gap:4px; min-width:0 }} .recess b {{ font-size:16px }} .recess p {{ margin:0; color:var(--muted); font-size:13px }}
+.rb {{ font:800 12px/1 ui-monospace,Menlo,monospace; letter-spacing:.12em; color:var(--accent) }} .recess.night .rb {{ color:#4cb7ff }}
+.rc {{ font:700 28px/1 ui-monospace,Menlo,monospace; color:var(--accent); font-variant-numeric:tabular-nums }}
 .nextwrap, .chartwrap {{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; display:grid; gap:10px }}
 .nextwrap h2, .chartwrap h2 {{ margin:0 }}
 .nh {{ display:flex; justify-content:space-between; align-items:center; gap:12px }} .nh p {{ margin:4px 0 0; font-size:12px }}
@@ -2203,6 +2356,7 @@ details {{ color:var(--muted) }} .fine {{ color:var(--muted); font-size:12px; ma
 <header><div><h1>Vault FX</h1><p>Updated {updated} · trend following on 15-minute and 1-hour candles{f" · started with ${START_BALANCE:,.0f}" if START_BALANCE else ""}</p></div>
   <div><span class="badge {mode.lower()}">{mode}</span> {f'<span class="badge paused">PAUSED · {html.escape(paused)}</span>' if paused else ''}</div></header>
 {council_room(st)}
+{recess_panel(st)}
 {next_panel(st)}
 {feed_panel(st)}
 <div class="stats">
