@@ -656,6 +656,19 @@ def run(log, full=True):
             elif cmd == "/testtrade":
                 st["test_pending"] = True
                 tg.say("🧪 Got it. On this run I'll place a 1-unit EUR/USD practice trade with a stop and target, close it right away, and report back.")
+            elif cmd in ("/happy", "/unhappy") or (cmd == "/start" and arg.strip() in ("happy", "unhappy")):
+                good = cmd == "/happy" or arg.strip() == "happy"
+                mood = st.setdefault("mood", {})
+                day_ = dt.datetime.now(LOCAL_TZ).strftime("%Y-%m-%d")
+                m = mood.setdefault(day_, {"happy": 0, "unhappy": 0})
+                m["happy" if good else "unhappy"] += 1
+                for k_ in sorted(mood)[:-14]:
+                    mood.pop(k_, None)
+                st["last_mood"] = {"kind": "cheers" if good else "sad", "t": time.time()}
+                feed_add(st, "event", "Commander's feedback", who="Chair", ok=good,
+                         text="The commander is happy. The council raises a glass! 🥂" if good else
+                              "The commander isn't happy. Noted. We'll keep it disciplined and earn it back.")
+                tg.say("🥂 Cheers from the council!" if good else "😔 Heard you, Commander. Noted for the daily report.")
             elif cmd in ("/status", "/start"):
                 st["_status_requested"] = True
         if not st.get("welcomed") and tg.chat():
@@ -666,6 +679,12 @@ def run(log, full=True):
                    "/pause – stop opening new trades\n/resume – start again\n/closeall – close every open trade\n"
                    "/live – turn the live council debate on or off\n/testtrade – place and close a tiny practice trade to prove orders work")
             st["welcomed"] = True
+
+    if tg and not st.get("bot_username"):
+        try:
+            st["bot_username"] = tg.api("getMe").get("result", {}).get("username")
+        except ApiError:
+            pass
 
     # 1) safety limits
     if nav <= st["day"]["start_nav"] * (1 - DAILY_LOSS_LIMIT) and not st["day"]["halted"]:
@@ -1192,6 +1211,9 @@ def daily_report(st, day, nav):
              "", "🧠 " + voters, "   " + bench]
     lines += ["   " + t.replace("🧠 ", "") for t in learned]
     lines += ["", "📰 Big news in the next 24h:", _upcoming(st, 24)]
+    md = st.get("mood", {}).get(day, {})
+    if md.get("happy") or md.get("unhappy"):
+        lines += ["", f"🎖 Your feedback today: 🥂 {md.get('happy', 0)} happy · 👎 {md.get('unhappy', 0)} not happy"]
     if st.get("paused"):
         lines += ["", f"⏸ Paused ({st['paused']}). Send /resume to restart."]
     return "\n".join(lines)
@@ -1345,7 +1367,23 @@ def council_room(state):
     <div class="table"><div class="gavel" aria-hidden="true"></div>{stamp}</div>
     <div class="seats">{"".join(seats)}</div>
   </div>
+  <div class="mood" role="group" aria-label="Tell the council how you feel">
+    <button type="button" class="mood-btn good" data-k="cheers">🥂 Happy</button>
+    <button type="button" class="mood-btn bad" data-k="sad">👎 Not happy</button>
+    <span class="mood-msg" id="moodmsg" aria-live="polite"></span>
+  </div>
+  {f'<p class="mood-tg">Want it on the record? <a href="https://t.me/{state["bot_username"]}?start=happy" target="_blank" rel="noopener">Send 🥂 to the bot</a> · <a href="https://t.me/{state["bot_username"]}?start=unhappy" target="_blank" rel="noopener">send 👎</a></p>' if state.get("bot_username") else ''}
   <p class="hint">Each member walks to the speaking ring to cast a vote, then The Chair rules. Tap a member to read their reasoning. Drag to look around.</p>
+  <script>(function(){{var msg=document.getElementById('moodmsg'),room=document.getElementById('room3d'),busy=0;
+    var lines={{cheers:['🥂 Cheers, Commander! The council raises a glass.','🥂 To the next one!','🥂 Hooah! Drinks are on The Quant.'],
+               sad:['😔 Understood, Commander. We’ll tighten up.','😔 Heard. Back to the drawing board.','😔 Noted. Discipline over hope.']}};
+    room.querySelectorAll('.mood-btn').forEach(function(b){{b.addEventListener('click',function(){{
+      var k=b.dataset.k,now=Date.now();if(now-busy<1500)return;busy=now;
+      if(window.councilReact)window.councilReact(k);
+      var l=lines[k];msg.textContent=l[Math.floor(Math.random()*l.length)];msg.className='mood-msg show '+k;
+      if(!room.classList.contains('is3d')){{room.classList.remove('flat-cheers','flat-sad');void room.offsetWidth;room.classList.add(k==='cheers'?'flat-cheers':'flat-sad');}}
+      clearTimeout(msg._t);msg._t=setTimeout(function(){{msg.className='mood-msg';}},5000);
+    }});}});}})();</script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/objects/Reflector.js"></script>
   <script>{script}</script>
@@ -1746,6 +1784,37 @@ ROOM_JS = r"""
     var sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: signTex(word, color), transparent: true, depthWrite: false }));
     sp.scale.set(0.001, 0.001, 1); world.add(sp); signs.push(sp);
   });
+  // ── commander's reactions: 🥂 cheers / 👎 disappointed
+  var GLASS = new THREE.MeshStandardMaterial({ color: 0xe8f4ff, transparent: true, opacity: 0.55, roughness: 0.05, metalness: 0.1 });
+  var BUBBLY = new THREE.MeshBasicMaterial({ color: 0xf6d36b });
+  people.forEach(function (g) {
+    var u = g.userData; if (!u.armR) return;
+    var gl = new THREE.Group(); gl.visible = false;
+    var bowl = M(new THREE.CylinderGeometry(0.06, 0.035, 0.12, 14, 1, true), GLASS); bowl.position.y = 0.1; gl.add(bowl);
+    var fizz = M(new THREE.CylinderGeometry(0.052, 0.034, 0.08, 14), BUBBLY); fizz.position.y = 0.08; gl.add(fizz);
+    var stem = M(new THREE.CylinderGeometry(0.008, 0.008, 0.08, 6), GLASS); stem.position.y = 0.0; gl.add(stem);
+    var foot = M(new THREE.CylinderGeometry(0.035, 0.035, 0.008, 12), GLASS); foot.position.y = -0.04; gl.add(foot);
+    gl.position.set(0, -0.38, 0.04); gl.rotation.x = Math.PI; gl.scale.setScalar(1.7);      // hand points down the arm; flip so the glass stands up when raised
+    u.armR.userData.joint.add(gl); u.glass = gl;
+  });
+  var confN = 260, confG = new THREE.BufferGeometry(), cp = new Float32Array(confN * 3), cc = new Float32Array(confN * 3), cv = [];
+  var palette = [[0.33, 0.94, 0.65], [0.96, 0.78, 0.29], [0.22, 0.88, 1.0], [1.0, 0.42, 0.49], [0.79, 0.65, 1.0]];
+  for (var ci = 0; ci < confN; ci++) { var pc = palette[ci % 5]; cc[ci * 3] = pc[0]; cc[ci * 3 + 1] = pc[1]; cc[ci * 3 + 2] = pc[2]; cv.push([0, 0, 0]); cp[ci * 3 + 1] = -50; }
+  confG.setAttribute('position', new THREE.BufferAttribute(cp, 3)); confG.setAttribute('color', new THREE.BufferAttribute(cc, 3));
+  var confetti = new THREE.Points(confG, new THREE.PointsMaterial({ size: 0.07, vertexColors: true, transparent: true, depthWrite: false }));
+  world.add(confetti);
+  function burst() {
+    for (var b = 0; b < confN; b++) {
+      cp[b * 3] = (Math.random() - 0.5) * 1.2; cp[b * 3 + 1] = 2.6 + Math.random() * 0.4; cp[b * 3 + 2] = -0.6 + (Math.random() - 0.5) * 1.2;
+      var a = Math.random() * Math.PI * 2, sp_ = 1.2 + Math.random() * 2.4;
+      cv[b] = [Math.cos(a) * sp_, 2 + Math.random() * 3, Math.sin(a) * sp_];
+    }
+    confG.attributes.position.needsUpdate = true;
+  }
+  var react = null, REACT_LEN = 5.0;
+  window.councilReact = function (kind) { react = { kind: kind, t: performance.now() / 1000, burst: false }; };
+  var cheerLight = new THREE.PointLight(0xf6d36b, 0, 10, 2); cheerLight.position.set(0, 2.6, -0.6); scene.add(cheerLight);
+
   // speaking spot marker
   var spot = M(new THREE.RingGeometry(0.42, 0.5, 48), addv(0xf4c84a, 0.5)); spot.rotation.x = -Math.PI / 2; at(spot, SPEAK.x, 0.013, SPEAK.z);
 
@@ -1835,6 +1904,7 @@ ROOM_JS = r"""
     var speaker = -1;
     people.forEach(function (g, i) {
       var u = g.userData, p = plan(i, c);
+      if (react && now / 1000 - react.t < REACT_LEN) p = { pos: u.seat, sit: 1 };   // reactions pause the hearing
       if (p.at) speaker = i;
       u.prev.copy(g.position);
       var drop = (u.hip - 0.52) * p.sit;
@@ -1871,11 +1941,37 @@ ROOM_JS = r"""
       u.glows.forEach(function (m) { m.scale.y = blink; });
       u.faceGlow.material.opacity = 0.25 + talk * 0.6; u.faceGlow.scale.setScalar(0.3 + talk * 0.3);
       if (u.mouth) u.mouth.scale.y = 1 + talk * 3.5;
+      var rk = react ? now / 1000 - react.t : 99;
+      if (rk < REACT_LEN) {
+        var fade = 1 - smooth((rk - (REACT_LEN - 0.8)) / 0.8), lift = smooth(rk / 0.6) * fade;
+        if (react.kind === 'cheers') {
+          var standUp = smooth(rk / 0.5) * fade;
+          g.position.y = -drop * (1 - standUp) + Math.abs(Math.sin(rk * 7 + i)) * 0.09 * lift;
+          if (u.legL) { u.legL.rotation.x *= 1 - standUp; u.legR.rotation.x *= 1 - standUp;
+            u.legL.userData.joint.rotation.x *= 1 - standUp; u.legR.userData.joint.rotation.x *= 1 - standUp; }
+          var toast = rk > 1.3 && rk < 1.7 ? 0.35 : 0;            // everyone leans in to clink
+          if (u.armR) { u.armR.rotation.x = -2.5 * lift + 0.15 * Math.sin(rk * 5 + i) * lift + toast * lift;
+            u.armR.userData.joint.rotation.x = -0.25 * lift; }
+          if (u.armL) { u.armL.rotation.x = -0.6 * lift * (0.5 + 0.5 * Math.sin(rk * 6 + i)); }
+          if (u.head) { u.head.rotation.x = -0.15 * lift; }
+          if (u.mouth) u.mouth.scale.set(1 + lift * 0.6, 1 + lift * 3, 1);
+          if (u.glass) u.glass.visible = lift > 0.05;
+          var face = Math.atan2(-g.position.x, -0.6 - g.position.z); var dd = Math.atan2(Math.sin(face - u.yaw), Math.cos(face - u.yaw));
+          u.yaw += dd * 0.1 * lift; g.rotation.y = u.yaw;
+        } else {
+          if (u.head) { u.head.rotation.x = 0.4 * lift; u.head.rotation.y = Math.sin(rk * 9 + i) * 0.35 * lift * (rk < 2.2 ? 1 : 0.3); }
+          if (u.armR) u.armR.rotation.x *= 1 - lift; if (u.armL) u.armL.rotation.x *= 1 - lift;
+          if (u.mouth) u.mouth.scale.set(1 - 0.3 * lift, 1, 1);
+        }
+      } else {
+        if (u.head) u.head.rotation.x = 0;
+        if (u.glass) u.glass.visible = false;
+      }
       u.halo.visible = p.sit < 0.5;
       var sel = picked === i ? 1.08 : 1; g.scale.setScalar(g.scale.x + (sel - g.scale.x) * 0.2);
       u.halo.material.opacity = picked === i ? 0.95 : 0.4;
       // vote sign + station ring
-      var sp = signs[i], showSign = deliberating && (p.spoke || (still && D.verdict));
+      var sp = signs[i], showSign = deliberating && (p.spoke || (still && D.verdict)) && !(react && now / 1000 - react.t < REACT_LEN);
       var k = showSign ? (p.at ? pop((p.k - 0.25) / 0.4) : 0.72) : 0;
       sp.position.set(g.position.x, (p.at ? 2.35 : 2.1) + g.position.y + (p.sit ? -0.1 : 0), g.position.z);
       sp.scale.set(0.8 * k + 0.001, 0.35 * k + 0.001, 1);
@@ -1885,10 +1981,31 @@ ROOM_JS = r"""
       rr.glow.material.color.setHex(lc); rr.glow.material.opacity = lit ? 0.35 + 0.1 * Math.sin(t * 4) : 0;
     });
 
+    var rkk = react ? now / 1000 - react.t : 99;
+    if (react && react.kind === 'cheers' && rkk > 1.45 && !react.burst) { react.burst = true; burst(); }
+    if (rkk < REACT_LEN + 3) {
+      var cpos = confG.attributes.position;
+      for (var b = 0; b < confN; b++) {
+        if (cp[b * 3 + 1] < -10) continue;
+        cv[b][1] -= 6 * dt; cv[b][0] *= 0.985; cv[b][2] *= 0.985;
+        cp[b * 3] += cv[b][0] * dt; cp[b * 3 + 1] += Math.max(cv[b][1], -1.2) * dt; cp[b * 3 + 2] += cv[b][2] * dt;
+        if (cp[b * 3 + 1] < 0.02) { cp[b * 3 + 1] = 0.02; cv[b] = [0, 0, 0]; }
+      }
+      cpos.needsUpdate = true;
+      confetti.material.opacity = rkk < REACT_LEN ? 1 : Math.max(0, 1 - (rkk - REACT_LEN) / 3);
+    } else if (confetti.material.opacity > 0) {
+      confetti.material.opacity = 0; for (var b2 = 0; b2 < confN; b2++) cp[b2 * 3 + 1] = -50; confG.attributes.position.needsUpdate = true;
+    }
+    var clink = react && react.kind === 'cheers' ? Math.max(0, 1 - Math.abs(rkk - 1.5) / 0.6) : 0;
+    cheerLight.intensity = clink * 4;
+    if (react && react.kind === 'sad' && rkk < REACT_LEN) { holoLight.color.lerp(new THREE.Color(0xff6b7c), 0.08); }
+
     // The Chair follows the speaker, then swings the gavel
     var look = speaker >= 0 ? Math.atan2(people[speaker].position.x - judge.position.x, people[speaker].position.z - judge.position.z) * 0.6
              : (still ? 0 : 0.25 * Math.sin(t * 0.35));
+    if (react && rkk < REACT_LEN) look = react.kind === 'cheers' ? 0 : Math.sin(rkk * 8) * 0.4 * (1 - rkk / REACT_LEN);
     jhead.rotation.y += (look - jhead.rotation.y) * 0.08;
+    jhead.rotation.x = react && react.kind === 'cheers' && rkk < REACT_LEN ? Math.sin(rkk * 6) * 0.15 : 0;
     halo.rotation.z = t * 0.6;
     var gt = D.verdict ? (c - VERDICT_AT) : -1;
     var swing = gt < 0 ? 0 : gt < 0.35 ? -smooth(gt / 0.35) * 1.1 : gt < 0.5 ? -1.1 + smooth((gt - 0.35) / 0.15) * 1.5 : 0.4 - smooth((gt - 0.5) / 0.6) * 0.4;
@@ -2317,6 +2434,18 @@ details {{ color:var(--muted) }} .fine {{ color:var(--muted); font-size:12px; ma
 .is3d .table, .is3d .char, .is3d .seat .sign {{ display:none }}
 .is3d .seats {{ margin-top:-4px }}
 .is3d .seat:hover .why, .is3d .seat:focus .why {{ display:none }}
+.mood {{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; justify-content:center }}
+.mood-btn {{ font:700 15px/1 ui-sans-serif,-apple-system,sans-serif; padding:12px 18px; border-radius:999px; border:2px solid; cursor:pointer;
+  background:transparent; min-height:44px; transition:transform .12s, background .2s }}
+.mood-btn:active {{ transform:scale(.95) }} .mood-btn:focus-visible {{ outline:2px solid #f4c84a; outline-offset:3px }}
+.mood-btn.good {{ color:#53f0a6; border-color:#53f0a6 }} .mood-btn.good:hover {{ background:#53f0a61f }}
+.mood-btn.bad {{ color:#ff6b7c; border-color:#ff6b7c }} .mood-btn.bad:hover {{ background:#ff6b7c1f }}
+.mood-msg {{ flex-basis:100%; text-align:center; font-weight:600; min-height:1.4em; opacity:0; transition:opacity .3s }}
+.mood-msg.show {{ opacity:1 }} .mood-msg.cheers {{ color:#f6d36b }} .mood-msg.sad {{ color:#ff9aa5 }}
+.mood-tg {{ margin:0; text-align:center; font-size:12px; color:#9c90c8 }} .mood-tg a {{ color:#c9bdf0 }}
+.room.flat-cheers .char {{ animation:hop .5s ease-in-out 4 }} .room.flat-sad .char {{ animation:droop 2.5s ease-in-out 1 }}
+@keyframes hop {{ 50% {{ transform:translateY(-12px) rotate(-4deg) }} }}
+@keyframes droop {{ 30%,70% {{ transform:translateY(6px) rotate(6deg); filter:grayscale(.6) }} }}
 .stamp3d {{ position:absolute; left:50%; bottom:14px; transform:translateX(-50%); pointer-events:none; opacity:0; transition:opacity .4s }}
 .stamp3d.show {{ opacity:1 }}
 .stamp3d .stamp {{ animation:none; transform:none; font:600 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.22em;
