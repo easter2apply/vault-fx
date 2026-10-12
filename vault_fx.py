@@ -1475,7 +1475,10 @@ def chatter(st):
     if lv:
         for n, (ok, why) in (lv.get("votes") or {}).items():
             if n in lines and ok is not None:
-                lines[n].append(f"I voted {'YES' if ok else 'NO'} on {lv.get('label', 'the last one')}: {why}.")
+                short = (lv.get("label") or "the last one").split(" (")[0]
+                reason = why.split(";")[0].split(",")[0].strip()
+                reason = reason if len(reason) <= 48 else reason[:46].rsplit(" ", 1)[0] + "…"
+                lines[n].append(f"I voted {'YES' if ok else 'NO'} on {short}: {reason}.")
     board = st.get("scoreboard", {})
     for n in VOTERS:
         b = board.get(n, {})
@@ -2071,7 +2074,8 @@ ROOM_JS = r"""
     if (!text || (who !== 'chair' && who < 0)) return;
     var name = who === 'chair' ? 'The Chair' : D.voters[who].name;
     bubs = bubs.filter(function (b) { if (b.who === who) { b.el.remove(); return false; } return true; });
-    while (bubs.length >= 3) { bubs.shift().el.remove(); }
+    while (bubs.length >= 2) { bubs.shift().el.remove(); }
+    if (text.length > 90) text = text.slice(0, 88).replace(/\s+\S*$/, '') + '…';
     var el = document.createElement('div'); el.className = 'bub'; el.style.setProperty('--bc', who === 'chair' ? '#f4c84a' : HEX[name] || '#fff');
     var b = document.createElement('b'); b.textContent = name; el.appendChild(b); el.appendChild(document.createTextNode(text));
     bubWrap.appendChild(el); requestAnimationFrame(function () { el.classList.add('on'); });
@@ -2080,14 +2084,21 @@ ROOM_JS = r"""
     if (who !== 'chair') people[who].userData.talkUntil = lastT + Math.min(len, 2.6);
   }
   function placeBubbles(nowP) {
-    var W = stage.clientWidth, H = renderer.domElement.clientHeight;
+    var W = stage.clientWidth, H = renderer.domElement.clientHeight, placed = [];
     bubs = bubs.filter(function (b) {
       if (nowP > b.until) { b.el.classList.remove('on'); setTimeout(function () { b.el.remove(); }, 300); return false; }
       if (b.who === 'chair') jhead.getWorldPosition(V); else people[b.who].userData.head.getWorldPosition(V);
       V.y += 0.42; V.project(cam);
       var x = (V.x + 1) / 2 * W, y = (1 - V.y) / 2 * H, bw = b.el.offsetWidth || 120, bh = b.el.offsetHeight || 40;
-      var left = Math.max(4, Math.min(W - bw - 4, x - bw / 2));
-      b.el.style.left = left + 'px'; b.el.style.top = Math.max(bh + 4, Math.min(H - 4, y)) + 'px';
+      var left = Math.max(4, Math.min(W - bw - 4, x - bw / 2)), top = Math.max(bh + 4, Math.min(H - 4, y));
+      placed.forEach(function (r) {                                   // stack above an earlier bubble instead of covering it
+        if (left < r.l + r.w + 4 && left + bw + 4 > r.l && top - bh < r.t + 4 && top + 4 > r.t - r.h) {
+          var up = r.t - r.h - 8;
+          if (up - bh >= 4) top = up; else top = Math.min(H - 4, r.t + bh + 8);
+        }
+      });
+      placed.push({ l: left, t: top, w: bw, h: bh });
+      b.el.style.left = left + 'px'; b.el.style.top = top + 'px';
       b.el.style.setProperty('--tx', Math.max(12, Math.min(bw - 12, x - left)) + 'px');
       b.el.style.visibility = V.z > 1 ? 'hidden' : 'visible';
       return true;
