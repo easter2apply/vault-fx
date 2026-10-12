@@ -6,7 +6,7 @@
   "nav": 497.87,
   "oanda_nav": 99998.1162,
   "unrealized": 0,
-  "updated": 1791846315.410049
+  "updated": 1791846618.603309
  },
  "bot_username": "EVaultFX_bot",
  "chat_id": "7590441188",
@@ -117,6 +117,10 @@
   ],
   [
    1791845711,
+   497.87
+  ],
+  [
+   1791846619,
    497.87
   ]
  ],
@@ -1589,6 +1593,57 @@
    "title": "Scanned 6 markets: 0 setups on the latest candle",
    "verdict": null,
    "who": null
+  },
+  {
+   "kind": "event",
+   "lines": [],
+   "ok": null,
+   "t": 1791846619.6880996,
+   "text": "You resumed trading. Back to normal.",
+   "title": "Resumed",
+   "verdict": null,
+   "who": "Chair"
+  },
+  {
+   "kind": "scan",
+   "lines": [
+    {
+     "say": "\u25bc ADX 32, RSI 29: trending, waiting for a pullback",
+     "vote": null,
+     "who": "EUR/USD"
+    },
+    {
+     "say": "\u25bc ADX 19, RSI 36: trending, waiting for a pullback",
+     "vote": null,
+     "who": "GBP/USD"
+    },
+    {
+     "say": "\u25bc ADX 19, RSI 32: trending, waiting for a pullback",
+     "vote": null,
+     "who": "AUD/USD"
+    },
+    {
+     "say": "\u25b2 ADX 21, RSI 61: trending, waiting for a pullback",
+     "vote": null,
+     "who": "USD/JPY"
+    },
+    {
+     "say": "\u25b2 ADX 13, RSI 63: trend too weak, waiting",
+     "vote": null,
+     "who": "USD/CAD"
+    },
+    {
+     "say": "\u25b2 ADX 39, RSI 71: trending, waiting for a pullback",
+     "vote": null,
+     "who": "USD/CHF"
+    }
+   ],
+   "ok": null,
+   "t": 1791846623.7532365,
+   "text": null,
+   "title": "Scanned 6 markets: 0 setups on the latest candle",
+   "verdict": null,
+   "who": null
   }
  ],
  "history": [
@@ -1651,8 +1706,8 @@
  },
  "last_daily": "2026-10-12",
  "last_deploy": 1791846028.1981196,
- "last_full_run": 1791846315.410049,
- "last_run": 1791846315.410049,
+ "last_full_run": 1791846618.603309,
+ "last_run": 1791846618.603309,
  "last_vote": {
   "approved": false,
   "ask": 0,
@@ -1943,7 +1998,7 @@
    },
    "rsi": 29.041644035916818,
    "setup": null,
-   "spread_pips": 1.40000000000029,
+   "spread_pips": 1.7000000000000348,
    "tradeable": true,
    "trend": -1
   },
@@ -1969,7 +2024,7 @@
    },
    "rsi": 35.79427995843875,
    "setup": null,
-   "spread_pips": 2.20000000000109,
+   "spread_pips": 1.8999999999991246,
    "tradeable": true,
    "trend": -1
   },
@@ -1989,13 +2044,13 @@
     "session": false,
     "tf": "M15",
     "waiting": [
-     "spread is 72% of ATR",
+     "spread is 69% of ATR",
      "RSI 57, outside trading hours"
     ]
    },
    "rsi": 63.29562946829772,
    "setup": null,
-   "spread_pips": 1.9999999999997797,
+   "spread_pips": 1.8999999999991246,
    "tradeable": true,
    "trend": 1
   },
@@ -2015,13 +2070,13 @@
     "session": false,
     "tf": "M15",
     "waiting": [
-     "spread is 96% of ATR",
+     "spread is 87% of ATR",
      "RSI 55, outside trading hours"
     ]
    },
    "rsi": 70.70105415421669,
    "setup": null,
-   "spread_pips": 2.00000000000089,
+   "spread_pips": 1.80000000000069,
    "tradeable": true,
    "trend": 1
   },
@@ -2037,22 +2092,23 @@
     "dir": 1,
     "in_trade": false,
     "of": 6,
-    "passed": 5,
+    "passed": 4,
     "session": true,
-    "tf": "M15",
+    "tf": "H1",
     "waiting": [
-     "ADX 17 (needs 18)"
+     "a pullback to the trend line or a fresh crossover",
+     "MACD against us (up)"
     ]
    },
    "rsi": 61.28034010630676,
    "setup": null,
-   "spread_pips": 1.700000000002433,
+   "spread_pips": 1.8000000000000682,
    "tradeable": true,
    "trend": 1
   }
  },
  "paused": null,
- "peak": 500.0,
+ "peak": 497.87,
  "record": {
   "losses": 1,
   "pl": -2.13,
@@ -2374,7 +2430,7 @@
   "until": 0,
   "wins_since": 0
  },
- "tg_offset": 79693431,
+ "tg_offset": 79693432,
  "ticker": [
   {
    "c": -0.35,
