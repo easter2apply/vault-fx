@@ -6,7 +6,7 @@
   "nav": 493.79,
   "oanda_nav": 99994.0367,
   "unrealized": 0,
-  "updated": 1791860113.5502
+  "updated": 1791860397.701018
  },
  "bot_username": "EVaultFX_bot",
  "chat_id": "7590441188",
@@ -4320,7 +4320,7 @@
     }
    ],
    "ok": null,
-   "t": 1791860118.3887644,
+   "t": 1791860401.2854228,
    "text": null,
    "title": "Scanned 6 markets: 0 setups on the latest candle",
    "verdict": null,
@@ -4442,6 +4442,11 @@
    "kind": "vote",
    "t": 1791859519.8460994,
    "text": "Council rejected USD/CHF SELL (crossover 15m) 2\u20133. In my files, 15-minute crossover setups are GUILTY (-0.16R over 4,678). Meanwhile on paper: Quiet-hours snap-back is holding a BUY (+0.1R)."
+  },
+  {
+   "kind": "paper",
+   "t": 1791860400.3404577,
+   "text": "Quiet-hours snap-back closed its paper BUY on USD/JPY: -1.00R (stop)."
   }
  ],
  "history": [
@@ -4686,12 +4691,12 @@
   "USD_CHF": "2026-10-13T01:00:00",
   "USD_CHF:M15": "2026-10-13T02:30:00",
   "USD_JPY": "2026-10-13T01:00:00",
-  "USD_JPY:M15": "2026-10-13T02:30:00"
+  "USD_JPY:M15": "2026-10-13T02:45:00"
  },
  "last_daily": "2026-10-12",
- "last_deploy": 1791859519.8637803,
- "last_full_run": 1791860113.5502,
- "last_run": 1791860113.5502,
+ "last_deploy": 1791860401.3647594,
+ "last_full_run": 1791860397.701018,
+ "last_run": 1791860397.701018,
  "last_vote": {
   "approved": false,
   "ask": 0,
@@ -5211,7 +5216,7 @@
    },
    "rsi": 34.97030483011224,
    "setup": null,
-   "spread_pips": 1.300000000000745,
+   "spread_pips": 1.2000000000000899,
    "tradeable": true,
    "trend": -1
   },
@@ -5263,7 +5268,7 @@
    },
    "rsi": 48.59860282054502,
    "setup": null,
-   "spread_pips": 1.900000000001345,
+   "spread_pips": 1.8999999999991246,
    "tradeable": true,
    "trend": -1
   },
@@ -5283,13 +5288,13 @@
     "session": false,
     "tf": "M15",
     "waiting": [
-     "spread is 55% of ATR",
+     "spread is 52% of ATR",
      "RSI 33, outside trading hours"
     ]
    },
    "rsi": 48.253677619222756,
    "setup": null,
-   "spread_pips": 1.900000000001345,
+   "spread_pips": 1.80000000000069,
    "tradeable": true,
    "trend": 1
   },
@@ -5309,13 +5314,13 @@
     "session": false,
     "tf": "M15",
     "waiting": [
-     "spread is 57% of ATR",
+     "spread is 50% of ATR",
      "RSI 30, outside trading hours"
     ]
    },
    "rsi": 49.65219619414863,
    "setup": null,
-   "spread_pips": 1.7999999999995797,
+   "spread_pips": 1.60000000000049,
    "tradeable": true,
    "trend": 1
   },
@@ -5341,7 +5346,7 @@
    },
    "rsi": 36.59473984244472,
    "setup": null,
-   "spread_pips": 1.2999999999976808,
+   "spread_pips": 1.300000000000523,
    "tradeable": true,
    "trend": 1
   }
@@ -5412,6 +5417,15 @@
      "r": -1.0,
      "t": "2026-10-13T01:45:00",
      "why": "stretched below its band, RSI 20"
+    },
+    {
+     "closed": "2026-10-13T02:45:00",
+     "dir": 1,
+     "how": "stop",
+     "pair": "USD_JPY",
+     "r": -1.0,
+     "t": "2026-10-13T01:45:00",
+     "why": "stretched below its band, RSI 27"
     }
    ],
    "open": {
@@ -5421,7 +5435,7 @@
      "entry": 1.11739,
      "hs": 7.999999999996898e-05,
      "last_ts": 1791859500,
-     "now_r": -0.41,
+     "now_r": -0.52,
      "risk": 0.0006353571428571419,
      "stop": 1.1180253571428573,
      "t": "2026-10-13T02:15:00",
@@ -5437,7 +5451,7 @@
      "entry": 1.42672,
      "hs": 9.00000000000345e-05,
      "last_ts": 1791859500,
-     "now_r": -0.21,
+     "now_r": -0.15,
      "risk": 0.0005367857142857337,
      "stop": 1.4261832142857143,
      "t": "2026-10-13T02:15:00",
@@ -5453,7 +5467,7 @@
      "entry": 0.83296,
      "hs": 8.500000000000174e-05,
      "last_ts": 1791859500,
-     "now_r": -0.09,
+     "now_r": -0.15,
      "risk": 0.0005357142857142981,
      "stop": 0.8324242857142857,
      "t": "2026-10-13T02:15:00",
@@ -5462,22 +5476,6 @@
      "ts": 1791858600,
      "until": 1791887400,
      "why": "stretched below its band, RSI 20"
-    },
-    "USD_JPY": {
-     "cost_r": 0.13982521847682855,
-     "dir": 1,
-     "entry": 158.309,
-     "hs": 0.007999999999995566,
-     "last_ts": 1791859500,
-     "now_r": -0.85,
-     "risk": 0.11442857142856966,
-     "stop": 158.19457142857144,
-     "t": "2026-10-13T01:45:00",
-     "tp": 158.53556857142857,
-     "trail": false,
-     "ts": 1791856800,
-     "until": 1791885600,
-     "why": "stretched below its band, RSI 27"
     }
    },
    "started": 1791853811.642428
@@ -5499,7 +5497,7 @@
   "GBP_USD": "2026-10-13T02:30:00",
   "USD_CAD": "2026-10-13T02:30:00",
   "USD_CHF": "2026-10-13T02:30:00",
-  "USD_JPY": "2026-10-13T02:30:00"
+  "USD_JPY": "2026-10-13T02:45:00"
  },
  "paused": null,
  "peak": 500.8869,
