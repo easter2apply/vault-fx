@@ -22,6 +22,7 @@ import sys
 import time
 
 import vault_fx as vf
+import cases as cs
 
 UTC = dt.timezone.utc
 WINDOW = 300                 # the live bot looks at the last 300 candles of each timeframe
@@ -182,8 +183,11 @@ def fifty_signal(m15, j, a, a15):
 
 # ───────────────────────────── replay one pair ───────────────────────────────
 
-def replay(pair, h1, h4, m15, test_from, pip_loc, log, fifty=None):
+def replay(pair, h1, h4, m15, test_from, pip_loc, log, fifty=None, d1=None, case_trades=None):
     setups = []
+    d1 = d1 or []
+    nd = 0
+    case_busy = {}
     fifty_days = set()
     pip = pip_size(pair, pip_loc)
     i1 = i4 = 0                                      # how many H1 / H4 candles are complete
@@ -206,6 +210,21 @@ def replay(pair, h1, h4, m15, test_from, pip_loc, log, fifty=None):
             i1 += 1
         while i4 < len(h4) and h4[i4]["ts"] + 14400 <= close_ts:
             i4 += 1
+        while nd < len(d1) and d1[nd]["ts"] + 86400 <= close_ts:
+            nd += 1
+        if case_trades is not None and close_ts >= test_from and j > 100:
+            for cid, plan in cs.signals(pair, m15, j, h1, i1, d1, nd).items():
+                if close_ts < case_busy.get(cid, 0):
+                    continue
+                pos = cs.open_position(plan, c)
+                res, k = None, j + 1
+                while k < len(m15) and res is None:
+                    res = cs.step(pos, m15[k]); k += 1
+                if res is None:
+                    continue                             # still open at the end of the data
+                case_busy[cid] = m15[k - 1]["ts"] + 900
+                case_trades.append({"case": cid, "pair": pair, "ts": close_ts, "r": res[0], "cost_r": round(pos["cost_r"], 4),
+                                    "hour": c["ts"] // 3600 % 24, "wd": now.weekday()})
         if close_ts < test_from or i1 < 210 or i4 < 210 or j < 210:
             continue
         now = dt.datetime.fromtimestamp(close_ts, UTC)
@@ -259,7 +278,8 @@ def replay(pair, h1, h4, m15, test_from, pip_loc, log, fifty=None):
             ok = vf.approved(votes)
             r_plain, _, how_plain = play(m15, j, d, entry, sl, tp, breakeven=False)
             rec = {"pair": pair, "t": c["t"], "tf": tf, "setup": s["setup"], "dir": d, "votes": {n: o for n, (o, _) in votes.items()},
-                   "approved": ok, "r": r_plain, "how": how_plain, "free": free}
+                   "approved": ok, "r": r_plain, "how": how_plain, "free": free, "ts": close_ts,
+                   "cost_r": round(abs(c["ac"] - c["bc"]) / abs(entry - sl), 4), "hour": now.hour, "wd": now.weekday()}
             # lab data: how the council would vote with the pair free, plus every exit plan's result
             hv = vf.council_breakout(s, True, "", now, pair, inf) if tf == "LB" else vf.council(s, sp, True, "", now, pair)
             risk0 = abs(entry - sl)
@@ -558,6 +578,122 @@ def lab_verdict(L):
             f"{c['test']['avg']:+.2f}R on the unseen months. That points to no real edge in this strategy family.")
 
 
+# ───────────────────────────── case board + odds boosters ────────────────────
+
+def explain(rs, costs):
+    st_ = stats(rs)
+    wins, losses = [r for r in rs if r > 0], [-r for r in rs if r <= 0]
+    aw = sum(wins) / len(wins) if wins else 0
+    al = sum(losses) / len(losses) if losses else 1
+    need = al / (aw + al) if aw + al else None
+    cost = sum(costs) / len(costs) if costs else 0
+    return st_, aw, al, need, cost
+
+
+def verdict_for(rs, ts_list, costs, split_ts, label_first, label_last):
+    first = [r for r, t in zip(rs, ts_list) if t < split_ts]
+    last = [r for r, t in zip(rs, ts_list) if t >= split_ts]
+    s_all, aw, al, need, cost = explain(rs, costs)
+    sf, sl_ = stats(first), stats(last)
+    if s_all["n"] < 30:
+        v, why = "UNDER INVESTIGATION", f"Only {s_all['n']} trades so far. Needs at least 30 to judge."
+    elif (sf["avg"] or -9) >= 0.05 and (sl_["avg"] or -9) >= 0.05 and sl_["n"] >= 10:
+        v = "CLEARED"
+        why = (f"Made money in both stretches: {sf['avg']:+.2f}R a trade ({label_first}) and {sl_['avg']:+.2f}R ({label_last}). "
+               f"Spread costs {cost:.2f}R a trade.")
+    elif (s_all["avg"] or 0) <= -0.05:
+        v = "GUILTY"
+        before = (s_all["avg"] or 0) + cost
+        if before > 0 and cost >= 0.05:
+            why = f"Costs killed it: {before:+.2f}R a trade before the spread, {s_all['avg']:+.2f}R after ({cost:.2f}R of spread per trade)."
+        else:
+            why = (f"Wins too rare for its payoff: won {pc(s_all['win'])} with wins of +{aw:.1f}R and losses of −{al:.1f}R, "
+                   f"so it needed {pc(need)} to break even." + (f" The spread cost another {cost:.2f}R a trade." if cost >= 0.05 else ""))
+    else:
+        v = "UNDER INVESTIGATION"
+        why = (f"Mixed: {sf['avg']:+.2f}R in the {label_first} and {sl_['avg']:+.2f}R in the {label_last}. "
+               "Not clearly winning or losing yet.") if sf["n"] and sl_["n"] else "Not enough trades in one of the stretches."
+    return {"verdict": v, "why": why, "all": s_all, "first": sf, "last": sl_, "cost": round(cost, 3)}
+
+
+def case_board(setups, fifty, case_trades, labres, months):
+    rows = [s for s in setups]
+    if not rows:
+        return {"cases": [], "split": None}
+    t0 = min(s["ts"] for s in rows)
+    t1 = max(s["ts"] for s in rows)
+    split_ts = t0 + (t1 - t0) * 2 / 3
+    lf = f"first {months * 2 / 3:.0f} months"
+    ll = f"last {months / 3:.0f} months"
+    board = []
+
+    def add(cid, name, kind, what, items):
+        items = sorted(items, key=lambda x: x[1])
+        v = verdict_for([x[0] for x in items], [x[1] for x in items], [x[2] for x in items], split_ts, lf, ll)
+        board.append(dict(v, id=cid, name=name, kind=kind, what=what, per_month=len(items) / max(months, 1e-9)))
+
+    trades = [s for s in setups if s["approved"]]
+    add("bot", "Your bot today (council trades)", "current", "Every trade the council would have approved, managed like the live bot.",
+        [(s["r_trade"], s["ts"], s["cost_r"]) for s in trades])
+    names = {"pullback": "1-hour pullback", "crossover": "1-hour crossover", "pullback 15m": "15-minute pullback",
+             "crossover 15m": "15-minute crossover", "London breakout": "London breakout"}
+    for key, nm in names.items():
+        add("setup:" + key, nm, "current", f"Every {nm if nm.startswith('London') else nm[0].lower() + nm[1:]} setup the bot saw, before the council voted.",
+            [(s["r"], s["ts"], s["cost_r"]) for s in setups if s["setup"] == key])
+    if fifty:
+        add("fifty", "50 Pips a Day (as written)", "article",
+            "From the MondFx article: trend agreement, pullback to a 20-candle level, pin bar or engulfing, 50-pip target, 25-pip stop.",
+            [(f["x"][0][0], f["ts"], f["spread_pips"] / 25) for f in fifty])
+    for cid, case in cs.CASES.items():
+        add("case:" + cid, case["name"], "new", case["what"],
+            [(t["r"], t["ts"], t["cost_r"]) for t in case_trades if t["case"] == cid])
+    if labres and labres.get("champ"):
+        c = labres["champ"]
+        te = c["test"]
+        v = "CLEARED" if labres["passed"] else "GUILTY" if (te["avg"] or 0) <= 0.0 else "UNDER INVESTIGATION"
+        board.append({"id": "lab", "name": "Lab's best tuned rule", "kind": "lab", "what": rule_text(c["rule"]), "verdict": v,
+                      "why": f"Tuned on training months ({c['train']['avg']:+.2f}R), then {te['avg']:+.2f}R on the unseen months.",
+                      "all": te, "first": c["train"], "last": te, "cost": None, "per_month": None})
+    order = {"CLEARED": 0, "UNDER INVESTIGATION": 1, "GUILTY": 2}
+    board.sort(key=lambda b: (order[b["verdict"]], -((b["all"] or {}).get("avg") or -9)))
+    return {"cases": board, "split": split_ts, "first_label": lf, "last_label": ll}
+
+
+ET_LABEL = lambda h: dt.datetime(2026, 1, 1, h, tzinfo=UTC).astimezone(vf.LOCAL_TZ).strftime("%-I %p")
+
+
+def boosters(setups):
+    if not setups:
+        return {}
+    base = stats([s["r"] for s in setups])
+    cost = sum(s["cost_r"] for s in setups) / len(setups)
+    by_pair = {}
+    for s in setups:
+        by_pair.setdefault(s["pair"], []).append(s["cost_r"])
+    pair_cost = sorted(((vf.NAMES.get(p, p), sum(v) / len(v)) for p, v in by_pair.items()), key=lambda x: x[1])
+    hours = {}
+    for s in setups:
+        hours.setdefault(s["hour"] // 2 * 2, []).append(s["r"])
+    hrows = [{"label": f"{ET_LABEL(h)}–{ET_LABEL((h + 2) % 24)} ET", "h": h, **stats(v)} for h, v in sorted(hours.items()) if len(v) >= 100]
+    days = {}
+    for s in setups:
+        days.setdefault(s["wd"], []).append(s["r"])
+    dnames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    drows = [{"label": dnames[d], "d": d, **stats(v)} for d, v in sorted(days.items()) if len(v) >= 100]
+    tips = [f"The spread costs {cost:.2f}R a trade on average, which is {cost / 1.5:.0%} of a full 1.5R win. "
+            f"Cheapest: {pair_cost[0][0]} ({pair_cost[0][1]:.2f}R). Most expensive: {pair_cost[-1][0]} ({pair_cost[-1][1]:.2f}R)."]
+    if hrows:
+        best, worst = max(hrows, key=lambda r: r["avg"]), min(hrows, key=lambda r: r["avg"])
+        keep = [s["r"] for s in setups if s["hour"] // 2 * 2 != worst["h"]]
+        tips.append(f"Best hours: {best['label']} ({best['avg']:+.2f}R). Worst: {worst['label']} ({worst['avg']:+.2f}R). "
+                    f"Skipping the worst stretch would have moved the average from {base['avg']:+.2f}R to {stats(keep)['avg']:+.2f}R.")
+    if drows:
+        best, worst = max(drows, key=lambda r: r["avg"]), min(drows, key=lambda r: r["avg"])
+        tips.append(f"Best day: {best['label']} ({best['avg']:+.2f}R). Worst: {worst['label']} ({worst['avg']:+.2f}R).")
+    tips.append("These are the same history the strategy was judged on, so treat them as hints to test, not proven fixes.")
+    return {"cost": round(cost, 3), "pair_cost": pair_cost, "hours": hrows, "days": drows, "tips": tips, "base": base}
+
+
 # ───────────────────────────── report ────────────────────────────────────────
 
 def fr(x, digits=2):
@@ -617,6 +753,9 @@ ul.tips{{margin:0;padding-left:20px;display:grid;gap:8px}}
 .mb i{{display:block;height:12px;border-radius:4px;width:var(--w);min-width:2px}} .mb i.pos{{background:var(--good)}} .mb i.neg{{background:var(--bad)}}
 .mb b{{text-align:right;font-variant-numeric:tabular-nums}} .mb span{{color:var(--muted)}}
 .fine{{color:var(--muted);font-size:12.5px}}
+.cases{{display:grid;gap:10px}} .case{{border:1px solid var(--line);border-left:4px solid var(--wait);border-radius:10px;padding:10px 12px}}
+.case.good{{border-left-color:var(--good)}} .case.bad{{border-left-color:var(--bad)}} .case p{{margin:4px 0}}
+.ch{{display:flex;justify-content:space-between;gap:8px;align-items:center}}
 table.lab td{{font-size:13px}} td.rk{{color:var(--muted);width:28px}} tr.base td{{background:color-mix(in srgb,var(--acc) 8%,transparent)}}
 .champ{{border:1px solid var(--line);border-left:4px solid var(--wait);border-radius:10px;padding:10px 12px;margin:10px 0}}
 .champ.good{{border-left-color:var(--good)}} .champ ul{{margin:6px 0 0;padding-left:18px;font-size:14px}} details summary{{cursor:pointer;color:var(--muted)}}
@@ -635,6 +774,10 @@ table.lab td{{font-size:13px}} td.rk{{color:var(--muted);width:28px}} tr.base td
 </div></section>
 
 <section><h2>What to do</h2><ul class="tips">{tips}</ul></section>
+
+{board_html(g.get('board'))}
+
+{boosters_html(g.get('boosters'))}
 
 {lab_html(g.get('lab'))}
 
@@ -666,6 +809,31 @@ Not simulated: the news blackout, the daily loss limit, the losing-streak breake
 (all officers count equally here). Results are in R: +1.5R is a full win, −1R a full loss.</p>
 <details><summary>Run log</summary><ul class="fine">{''.join(f'<li>{html.escape(x)}</li>' for x in log)}</ul></details></section>
 </div></body></html>"""
+
+
+STAMP = {"CLEARED": "good", "GUILTY": "bad", "UNDER INVESTIGATION": "wait"}
+
+
+def board_html(B):
+    if not B or not B.get("cases"):
+        return ""
+    cards = ""
+    for c in B["cases"]:
+        a = c["all"] or {}
+        cards += f"""<article class="case {STAMP[c['verdict']]}"><div class="ch"><b>{html.escape(c['name'])}</b>
+          <span class="pill {STAMP[c['verdict']]}">{c['verdict'].title()}</span></div>
+          <p class="fine">{html.escape(c['what'])}</p>
+          <p>{html.escape(c['why'])}</p>
+          <p class="fine">{a.get('n', 0)} trades · {pc(a.get('win'))} wins · {fr(a.get('avg'))} a trade</p></article>"""
+    return f"""<section><h2>🗂 Case board</h2><p class="fine">Every strategy Inspector has tested. CLEARED means it made money in both the
+    {B.get('first_label', 'first months')} and the {B.get('last_label', 'last months')}. GUILTY means it lost overall.</p><div class="cases">{cards}</div></section>"""
+
+
+def boosters_html(Bo):
+    if not Bo:
+        return ""
+    tips = "".join(f"<li>{html.escape(t)}</li>" for t in Bo["tips"])
+    return f"""<section><h2>🎯 Odds boosters</h2><ul class="tips">{tips}</ul></section>"""
 
 
 def fifty_html(F):
@@ -745,6 +913,17 @@ def telegram_summary(g):
                   f"Best rule: {rule_text(c['rule'])}",
                   f"Training {c['train']['avg']:+.2f}R ({c['train']['n']} trades) → unseen months {c['test']['avg']:+.2f}R ({c['test']['n']} trades)",
                   f"{L['held']} of the top {len(L['top'])} rules held up on the unseen months."]
+    B = g.get("board") or {}
+    if B.get("cases"):
+        cl = [c["name"] for c in B["cases"] if c["verdict"] == "CLEARED"]
+        gu = sum(1 for c in B["cases"] if c["verdict"] == "GUILTY")
+        ui = sum(1 for c in B["cases"] if c["verdict"] == "UNDER INVESTIGATION")
+        lines += ["", f"🗂 Case board: {len(cl)} cleared, {gu} guilty, {ui} under investigation"]
+        pg = [c["name"] for c in B["cases"] if c["verdict"] == "CLEARED" and c["kind"] == "new"]
+        if cl:
+            lines.append("Cleared: " + ", ".join(cl))
+        if pg:
+            lines.append("➡️ Starting 4 weeks of live paper trading (the proving ground): " + ", ".join(pg))
     F = g.get("fifty")
     if F:
         lines += ["", "📄 50 Pips a Day: " + fifty_verdict(F)]
@@ -777,21 +956,26 @@ def main():
     except Exception as e:
         info = {}
         log.append(f"instrument info unavailable ({e})")
-    setups, fifty = [], []
+    setups, fifty, case_trades = [], [], []
     for pair in [p.strip() for p in args.pairs.split(",") if p.strip()]:
         try:
             m15 = fetch(token, pair, "M15", test_from - dt.timedelta(days=5))
             h1 = fetch(token, pair, "H1", test_from - dt.timedelta(days=20))
             h4 = fetch(token, pair, "H4", test_from - dt.timedelta(days=75))
+            d1 = fetch(token, pair, "D", test_from - dt.timedelta(days=45))
         except Exception as e:
             log.append(f"{pair}: skipped ({e})")
             continue
         log.append(f"{pair}: {len(m15)} 15-min ({m15[0]['t'][:10] if m15 else '?'} → {m15[-1]['t'][:10] if m15 else '?'}), {len(h1)} 1-hour, {len(h4)} 4-hour candles")
-        setups += replay(pair, h1, h4, m15, test_from.timestamp(), int(info.get(pair, {}).get("pipLocation", -4)), log, fifty)
+        setups += replay(pair, h1, h4, m15, test_from.timestamp(), int(info.get(pair, {}).get("pipLocation", -4)), log, fifty,
+                         d1=d1, case_trades=case_trades)
         print(log[-1], flush=True)
     g = grade(setups, args.months)
     g["lab"] = lab(setups, log)
     g["fifty"] = fifty_lab(fifty, log)
+    g["board"] = case_board(setups, fifty, case_trades, g["lab"], args.months)
+    g["boosters"] = boosters(setups)
+    log.append(f"Cases: {len(case_trades)} trades across {len(cs.CASES)} new strategies")
     log.append(f"Finished in {(time.time() - started) / 60:.1f} min")
     with open("inspector.html", "w", encoding="utf-8") as f:
         f.write(render(g, log, started))

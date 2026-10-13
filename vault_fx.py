@@ -17,6 +17,8 @@ Only uses the Python standard library.
 """
 
 import argparse
+import cases as cs
+import office
 import datetime as dt
 import html
 import json
@@ -164,6 +166,16 @@ class Oanda:
                           "stopLossOnFill": {"price": sl, "timeInForce": "GTC"},
                           "takeProfitOnFill": {"price": tp, "timeInForce": "GTC"}}}
         return http("POST", f"{OANDA}/accounts/{self.a}/orders", self.t, body=body, tries=1)
+
+    def case_order(self, pair, units, sl, tp=None, trail=None):
+        """Market order for a promoted case: fixed stop, optional target, optional trailing stop distance."""
+        o = {"type": "MARKET", "instrument": pair, "units": str(units), "timeInForce": "FOK", "positionFill": "DEFAULT",
+             "stopLossOnFill": {"price": sl, "timeInForce": "GTC"}}
+        if tp:
+            o["takeProfitOnFill"] = {"price": tp, "timeInForce": "GTC"}
+        if trail:
+            o["trailingStopLossOnFill"] = {"distance": trail, "timeInForce": "GTC"}
+        return http("POST", f"{OANDA}/accounts/{self.a}/orders", self.t, body={"order": o}, tries=1)
 
     def set_stop(self, trade_id, price):
         body = {"stopLoss": {"price": price, "timeInForce": "GTC"}}
@@ -550,6 +562,218 @@ def score(st, votes, won, was_trade):
     st["history"] = st["history"][-400:]
 
 
+# ───────────────────────────── Inspector: files, hindsight, proving ground ────
+
+PROVING_DAYS = 28            # a cleared case paper-trades live for 4 weeks before it can be promoted
+PROVING_MIN_TRADES = 8       # ...with at least this many closed paper trades
+PROVING_MIN_AVG = 0.05       # ...averaging at least +0.05R
+_FILES = {}
+
+
+def inspector_files():
+    """Inspector's latest backtest (inspector.json), or {} before his first run."""
+    if "g" not in _FILES:
+        try:
+            with open("inspector.json", encoding="utf-8") as f:
+                j = json.load(f)
+            _FILES["g"], _FILES["when"] = j.get("grade", {}), j.get("when")
+        except (OSError, ValueError):
+            _FILES["g"], _FILES["when"] = {}, None
+    return _FILES["g"]
+
+
+def case_file(case_id):
+    for c in (inspector_files().get("board") or {}).get("cases", []):
+        if c["id"] == case_id:
+            return c
+    return None
+
+
+def hindsight(st, text, tg=None, kind="note"):
+    notes = st.setdefault("hindsight", [])
+    notes.append({"t": time.time(), "text": text, "kind": kind})
+    del notes[:-40]
+    if tg and st.get("hindsight_tg"):
+        tg.say("🕵️ " + text)
+
+
+def file_line(setup):
+    c = case_file("setup:" + setup) if setup else None
+    if not c:
+        return ""
+    a = c.get("all") or {}
+    return f"In my files, {c['name'].lower()} setups are {c['verdict']} ({(a.get('avg') or 0):+.2f}R over {a.get('n', 0):,})."
+
+
+def paper_line(st, pair):
+    bits = []
+    for cid, P in (st.get("paper") or {}).items():
+        pos = (P.get("open") or {}).get(pair)
+        if pos:
+            bits.append(f"{cs.CASES[cid]['name']} is holding a {'BUY' if pos['dir'] == 1 else 'SELL'} ({pos.get('now_r', 0):+.1f}R)")
+    return ("Meanwhile on paper: " + "; ".join(bits) + ".") if bits else ""
+
+
+def proving_ground(st, pair, m15, h1, d1, bid, ask, now, tg, log):
+    """Paper-trade every case on this pair: close what hit its stop/target, open what just signalled.
+    Returns the new plans {case_id: plan} so a promoted case can trade them for real."""
+    paper = st.setdefault("paper", {})
+    for cid in cs.CASES:
+        paper.setdefault(cid, {"open": {}, "closed": [], "started": now.timestamp()})
+    for c in m15:
+        c.setdefault("ts", int(dt.datetime.fromisoformat(c["t"][:19]).replace(tzinfo=dt.timezone.utc).timestamp()))
+    for c in h1 + d1:
+        c.setdefault("ts", int(dt.datetime.fromisoformat(c["t"][:19]).replace(tzinfo=dt.timezone.utc).timestamp()))
+    mid = (bid + ask) / 2 if bid and ask else m15[-1]["c"]
+    for cid, P in paper.items():
+        pos = P["open"].get(pair)
+        if not pos:
+            continue
+        for c in m15:
+            if c["ts"] + 900 <= pos["last_ts"]:
+                continue
+            pos["last_ts"] = c["ts"] + 900
+            res = cs.step(pos, c)
+            if res:
+                r, how = res
+                P["closed"].append({"pair": pair, "t": pos["t"], "closed": c["t"], "r": r, "how": how, "dir": pos["dir"], "why": pos.get("why", "")})
+                del P["closed"][:-150]
+                del P["open"][pair]
+                hindsight(st, f"{cs.CASES[cid]['name']} closed its paper {'BUY' if pos['dir'] == 1 else 'SELL'} on {NAMES[pair]}: "
+                              f"{r:+.2f}R ({'target' if how == 'target' else 'stop' if how == 'stop' else 'time limit'}).", tg, "paper")
+                break
+        else:
+            pos["now_r"] = round((mid - pos["entry"]) * pos["dir"] / pos["risk"], 2)
+    last = m15[-1]
+    seen = st.setdefault("paper_bar", {})
+    if seen.get(pair) == last["t"]:
+        return {}
+    seen[pair] = last["t"]
+    plans = cs.signals(pair, m15, len(m15) - 1, h1, len(h1), d1, len(d1))
+    for cid, plan in plans.items():
+        P = paper[cid]
+        if pair in P["open"]:
+            continue
+        pos = cs.open_position(plan, last, ask=ask, bid=bid)
+        pos["last_ts"] = last["ts"] + 900
+        pos["now_r"] = 0.0
+        P["open"][pair] = pos
+        hindsight(st, f"{cs.CASES[cid]['name']} would {'BUY' if plan['dir'] == 1 else 'SELL'} {NAMES[pair]} now: {plan['why']}.", tg, "paper")
+    return plans
+
+
+def proving_status(st, cid, now_ts=None):
+    """(state, details) for one case: untested · guilty · watching · proving · ready."""
+    now_ts = now_ts or time.time()
+    P = (st.get("paper") or {}).get(cid, {})
+    f = case_file("case:" + cid)
+    since = P.get("proving_since")
+    closed = [x for x in P.get("closed", []) if since and dt.datetime.fromisoformat(x["closed"][:19]).replace(
+        tzinfo=dt.timezone.utc).timestamp() >= since]
+    n = len(closed)
+    avg = sum(x["r"] for x in closed) / n if n else None
+    days = (now_ts - since) / 86400 if since else 0
+    if not f:
+        state = "untested"
+    elif f["verdict"] != "CLEARED":
+        state = "guilty" if f["verdict"] == "GUILTY" else "watching"
+    elif days >= PROVING_DAYS and n >= PROVING_MIN_TRADES and (avg or -9) >= PROVING_MIN_AVG:
+        state = "ready"
+    else:
+        state = "proving"
+    return state, {"days": days, "n": n, "avg": avg, "file": f}
+
+
+def daily_candles(api, st, pair, now):
+    """Daily candles, fetched once a day per pair (the 20-day breakout case needs them)."""
+    cache = st.setdefault("d1", {})
+    day = now.strftime("%Y-%m-%d %H")[:10]
+    hit = cache.get(pair)
+    if hit and hit.get("day") == day and now.hour != 21:
+        return [dict(c) for c in hit["c"]]
+    rows = api.candles(pair, "D", 30)
+    cache[pair] = {"day": day, "c": [{k: c[k] for k in ("t", "o", "h", "l", "c")} for c in rows]}
+    return [dict(c) for c in cache[pair]["c"]]
+
+
+def proving_checks(st, tg):
+    for cid in cs.CASES:
+        P = st.setdefault("paper", {}).setdefault(cid, {"open": {}, "closed": [], "started": time.time()})
+        f = case_file("case:" + cid)
+        if f and f["verdict"] == "CLEARED":
+            P.setdefault("proving_since", time.time())
+        else:
+            P.pop("proving_since", None); P.pop("offered", None)
+        state, d = proving_status(st, cid)
+        if state == "ready" and not P.get("offered") and st.get("strategy") != cid:
+            P["offered"] = True
+            msg = (f"🕵️ Case closed: {cs.CASES[cid]['name']} passed the backtest AND {d['days']:.0f} days of live paper trading "
+                   f"({d['avg']:+.2f}R a trade over {d['n']} trades).\n\nReply /approve {cid} to make it the bot's strategy "
+                   "(on your practice account). /revert switches back to the council any time.")
+            hindsight(st, f"{cs.CASES[cid]['name']} is ready for promotion. Waiting for your /approve.", None, "verdict")
+            if tg:
+                tg.say(msg)
+
+
+def place_case_trade(api, st, pair, cid, plan, bid, ask, inf, nav, now, news, open_pairs, log, tg):
+    """The promoted case trades for real (practice account), with the bot's usual safety limits."""
+    d = plan["dir"]
+    reasons = []
+    if st.get("paused"):
+        reasons.append("paused")
+    if st["day"].get("halted"):
+        reasons.append("daily loss limit hit")
+    if streak_status(st, now.timestamp()) == "timeout":
+        reasons.append("losing-streak timeout")
+    if pair in open_pairs:
+        reasons.append("already in a trade on this pair")
+    if len(st["trades"]) >= MAX_OPEN_TRADES:
+        reasons.append(f"{MAX_OPEN_TRADES} trades already open")
+    ts = now.timestamp()
+    if any(e["cur"] in pair_currencies(pair) and e["t"] - NEWS_BEFORE_MIN * 60 <= ts <= e["t"] + NEWS_AFTER_MIN * 60 for e in news):
+        reasons.append("news")
+    name = cs.CASES[cid]["name"]
+    if reasons:
+        log.append(f"{pair}: {name} signal skipped ({'; '.join(reasons)})")
+        return
+    entry = ask if d == 1 else bid
+    risk = plan["risk"]
+    sl = entry - d * risk
+    tp = entry + d * plan["target_r"] * risk if plan.get("target_r") else None
+    prec = int(inf.get("displayPrecision", 5))
+    conv = usd_per_unit_move(pair, entry)
+    if conv is None:
+        return
+    risk_usd = nav * RISK_PCT * (0.5 if streak_status(st, ts) != "normal" else 1)
+    units = min(int(risk_usd / (risk * conv)), int(nav * MAX_LEVERAGE / max(notional_usd(pair, 1, entry), 1e-9)))
+    if units < max(1, float(inf.get("minimumTradeSize", 1))):
+        log.append(f"{pair}: {name} skipped, smallest trade would risk too much")
+        return
+    try:
+        res = api.case_order(pair, d * units, fmt_price(sl, prec), fmt_price(tp, prec) if tp else None,
+                             fmt_price(risk, prec) if plan.get("trail") else None)
+    except ApiError as e:
+        log.append(f"{pair}: {name} order rejected ({e})")
+        return
+    opened = (res.get("orderFillTransaction") or {}).get("tradeOpened") or {}
+    if not opened:
+        log.append(f"{pair}: {name} order not filled")
+        return
+    fill = float(opened.get("price", entry))
+    tid = str(opened["tradeID"])
+    st["trades"][tid] = {"pair": pair, "dir": d, "units": units, "entry": fill, "sl": sl, "tp": tp or sl, "opened": now.isoformat()[:19],
+                         "risk": round(risk_usd, 2), "votes": {}, "setup": name, "tf": "case", "price": fill, "upl": 0.0,
+                         "case": cid, "until": now.timestamp() + plan["max_hours"] * 3600}
+    open_pairs.add(pair)
+    st["_changed"] = True
+    feed_add(st, "event", f"{name}: {NAMES[pair]} {'BUY' if d == 1 else 'SELL'}", who="Chair", ok=True,
+             text=f"Inspector's promoted strategy opened {units:,} units: {plan['why']}.")
+    hindsight(st, f"Promoted strategy {name} opened a real {'BUY' if d == 1 else 'SELL'} on {NAMES[pair]}: {plan['why']}.", None, "trade")
+    if tg:
+        tg.say(f"🟢 {name}: {'BUY' if d == 1 else 'SELL'} {NAMES[pair]} ({units:,} units)\nWhy: {plan['why']}\n"
+               f"Stop {fmt_price(sl, prec)}" + (f" · target {fmt_price(tp, prec)}" if tp else " · trailing stop, no target"))
+
+
 # ───────────────────────────── Telegram ──────────────────────────────────────
 
 class Telegram:
@@ -698,6 +922,41 @@ def run(log, full=True):
                          text="The commander is happy. The council raises a glass! 🥂" if good else
                               "The commander isn't happy. Noted. We'll keep it disciplined and earn it back.")
                 tg.say("🥂 Cheers from the council!" if good else "😔 Heard you, Commander. Noted for the daily report.")
+            elif cmd == "/hindsight":
+                on = {"on": True, "off": False}.get(arg.strip(), not st.get("hindsight_tg"))
+                st["hindsight_tg"] = on
+                tg.say("🕵️ Inspector's hindsight notes are ON. He'll comment on votes, closes and his paper trades. /hindsight off to stop."
+                       if on else "🕵️ Hindsight notes OFF. They're still on his tab.")
+            elif cmd == "/cases":
+                rows = []
+                for cid, case in cs.CASES.items():
+                    state, d = proving_status(st, cid)
+                    P = st.get("paper", {}).get(cid, {})
+                    allc = P.get("closed", [])
+                    avg = sum(x["r"] for x in allc) / len(allc) if allc else None
+                    rows.append(f"• {case['name']} ({cid}): {state}" + (f", paper {avg:+.2f}R over {len(allc)}" if allc else ", no paper trades yet")
+                                + (f", day {d['days']:.0f} of {PROVING_DAYS}" if state == "proving" else ""))
+                cur = st.get("strategy")
+                tg.say("🗂 Inspector's cases\n" + "\n".join(rows) + f"\n\nTrading now: {cs.CASES[cur]['name'] if cur in cs.CASES else 'the council'}")
+            elif cmd == "/approve":
+                cid, _, extra = arg.strip().partition(" ")
+                if cid not in cs.CASES:
+                    tg.say("Which one? " + ", ".join(cs.CASES) + "\nExample: /approve daily_breakout")
+                else:
+                    state, d = proving_status(st, cid)
+                    if state != "ready" and extra.strip() != "anyway":
+                        tg.say(f"⚠️ {cs.CASES[cid]['name']} hasn't passed the proving ground yet ({state}; "
+                               f"{d['n']} paper trades{', ' + format(d['avg'], '+.2f') + 'R' if d['avg'] is not None else ''}). "
+                               f"Send /approve {cid} anyway to switch now.")
+                    else:
+                        st["strategy"] = cid
+                        feed_add(st, "event", "New strategy", who="Chair", text=f"Promoted {cs.CASES[cid]['name']}. The council steps aside.")
+                        hindsight(st, f"You promoted {cs.CASES[cid]['name']}. It now trades your practice account.", None, "verdict")
+                        tg.say(f"✅ {cs.CASES[cid]['name']} is now the bot's strategy (practice account). The council stops trading; "
+                               "the same safety limits still apply. /revert to go back.")
+            elif cmd == "/revert":
+                st["strategy"] = None
+                tg.say("↩️ Back to the council's strategy. Open trades keep their stops and targets.")
             elif cmd in ("/status", "/start"):
                 st["_status_requested"] = True
         if not st.get("welcomed") and tg.chat():
@@ -706,7 +965,9 @@ def run(log, full=True):
                    "and I trade when it approves.\n\n"
                    "Commands (I read them every 5 min):\n/status – account and open trades\n"
                    "/pause – stop opening new trades\n/resume – start again\n/closeall – close every open trade\n"
-                   "/live – turn the live council debate on or off\n/testtrade – place and close a tiny practice trade to prove orders work")
+                   "/live – turn the live council debate on or off\n/testtrade – place and close a tiny practice trade to prove orders work\n"
+                   "/cases – Inspector's strategies and their proving-ground status\n/approve <case> – promote one\n/revert – back to the council\n"
+                   "/hindsight – Inspector's notes on or off")
             st["welcomed"] = True
 
     if tg and not st.get("bot_username"):
@@ -743,7 +1004,12 @@ def run(log, full=True):
             p = prices.get(meta["pair"], {})
             mid = (float(p["bids"][0]["price"]) + float(p["asks"][0]["price"])) / 2 if p.get("bids") and p.get("asks") else None
             meta["price"] = mid
-            if mid and not meta.get("breakeven"):
+            if meta.get("until") and now.timestamp() > meta["until"]:
+                try:
+                    api.close(tid); log.append(f"{meta['pair']}: {meta.get('setup')} time limit reached, closed")
+                except ApiError as e:
+                    log.append(f"{meta['pair']}: couldn't close at time limit ({e})")
+            if mid and not meta.get("breakeven") and not meta.get("case"):
                 r_dist = abs(meta["entry"] - meta["sl"])
                 gain = (mid - meta["entry"]) * meta["dir"]
                 if r_dist and gain >= BREAKEVEN_AT_R * r_dist:
@@ -782,6 +1048,8 @@ def run(log, full=True):
                  text=f"{NAMES[meta['pair']]} {'BUY' if meta['dir'] == 1 else 'SELL'} closed {money(pl)} ({meta['r']:+.2f}R). "
                       f"Record {st['record']['wins']}W–{st['record']['losses']}L.")
         meta["closed_ts"] = now.timestamp()
+        hindsight(st, " ".join(x for x in (f"{NAMES[meta['pair']]} {'BUY' if meta['dir'] == 1 else 'SELL'} ({meta.get('setup', '')}) closed {meta['r']:+.2f}R.",
+                                             file_line(meta.get("setup")) if not meta.get("case") else "", paper_line(st, meta["pair"])) if x), tg, "close")
         note = record_result(st, meta["pair"], meta.get("setup", "pullback"), meta["r"], approved_trade=True)
         if note and tg:
             tg.say(note)
@@ -848,6 +1116,15 @@ def run(log, full=True):
                              "close": a["close"], "prec": prec, "setup": a["setup"], "bar": a["time"],
                              "tradeable": bool(p.get("tradeable", False)),
                              "chg": (a["close"] - h1[-25]["c"]) / h1[-25]["c"] * 100 if len(h1) > 25 else 0}
+        # Inspector's proving ground: paper-trade every case; a promoted case trades for real
+        try:
+            d1 = daily_candles(api, st, pair, now)
+            plans = proving_ground(st, pair, m15, h1, d1, bid, ask, now, tg, log) if bid and ask else {}
+            strat = st.get("strategy")
+            if strat in plans:
+                place_case_trade(api, st, pair, strat, plans[strat], bid, ask, inf, nav, now, news, open_pairs, log, tg)
+        except Exception as e:                       # never let the side project break trading
+            log.append(f"{pair}: proving ground skipped ({e})")
         lbk = london_breakout(pair, m15, a, spread, now) if len(m15) >= 40 else None
         if lbk and st.setdefault("lb_done", {}).get(pair) != now.strftime("%Y-%m-%d"):
             tfs.append(("LB", lbk, m15))
@@ -887,6 +1164,8 @@ def run(log, full=True):
                 st["shadow"].remove(sh)
 
         for tf, a, _candles in tfs:
+            if st.get("strategy") in cs.CASES:
+                break                               # a promoted case is trading; the council steps aside
             bar_key = pair if tf == "H1" else f"{pair}:{tf}"
             if st["last_bar"].get(bar_key) == a["time"]:
                 continue                            # already decided on this candle
@@ -946,6 +1225,8 @@ def run(log, full=True):
                                "chart": {"closes": [round(x["c"], prec + 1) for x in _candles[-60:]], "entry": entry,
                                          "sl": sl, "tp": tp, "prec": prec, "tf": tf}}
             plain_votes = {n: o for n, (o, _) in votes.items()}
+            hindsight(st, " ".join(x for x in (f"Council {'approved' if ok else 'rejected'} {label} {yes}–{no}.",
+                                                 file_line(a["setup"]), paper_line(st, pair)) if x), tg, "vote")
             vote_entry = feed_add(st, "vote", label,
                              lines=[{"who": n, "vote": o, "say": say(n, o, why, a["time"] + pair)} for n, (o, why) in votes.items()],
                              verdict=(f"APPROVED {yes}–{no}. Placing the trade." if ok else
@@ -1060,6 +1341,12 @@ def run(log, full=True):
             if tg:
                 tg.say(msg)
             st["test_pending"] = False
+
+    if full:
+        try:
+            proving_checks(st, tg)
+        except Exception as e:
+            log.append(f"proving checks skipped ({e})")
 
     # 4) status reply
     if tg and st.pop("_status_requested", False):
@@ -1197,7 +1484,7 @@ def inspector_link():
     avg = t.get("avg")
     return f"""<section class="learnwrap"><h2>🕵️ Inspector's backtest</h2>
   <p>{g['grade']['months']:g} months replayed ({when}): {t['n']} trades, {('%+.2fR' % avg) if avg is not None else '—'} per trade.
-  <a href="inspector.html">Read the full report →</a></p></section>"""
+  <a href="office.html">Visit Inspector's Office →</a> · <a href="inspector.html">full report</a></p></section>"""
 
 
 def learning_html(st):
@@ -2841,7 +3128,7 @@ def build_html(st, log):
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="300">
 <title>Vault FX</title>
-<style>
+<style>{office.TAB_CSS}
 :root {{ --bg:#0f0c1d; --panel:#17132b; --fg:#ece8fb; --muted:#9a92bf; --line:#2c2550; --accent:#f4c84a;
   --pos:#53f0a6; --neg:#ff6b7c; --buy:#53f0a6; --sell:#ff6b7c; color-scheme:dark }}
 * {{ box-sizing:border-box }}
@@ -3035,6 +3322,7 @@ details {{ color:var(--muted) }} .fine {{ color:var(--muted); font-size:12px; ma
 @media (max-width:720px) {{ .nm {{ font-size:11px }} .acc {{ font-size:10px }}
   .roomhead {{ grid-template-columns:1fr; gap:10px }} .overall {{ border-right:0; padding-right:0; border-bottom:1px solid #4a3a85; padding-bottom:10px }} }}
 </style></head><body><div class="wrap">
+{office.tabbar("war")}
 <header><div><h1>Vault FX</h1><p>Updated {updated} · trend following on 15-minute and 1-hour candles{f" · started with ${START_BALANCE:,.0f}" if START_BALANCE else ""}</p></div>
   <div><span class="badge {mode.lower()}">{mode}</span> {f'<span class="badge paused">PAUSED · {html.escape(paused)}</span>' if paused else ''}</div></header>
 {council_room(st)}
@@ -3101,6 +3389,14 @@ def main():
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as f:
         f.write(build_html(st, log))
+    try:                                         # Inspector's Office tab
+        ctx = {"files": inspector_files(), "when": _FILES.get("when"), "cases": cs.CASES, "status": proving_status,
+               "names": NAMES, "tz": LOCAL_TZ, "proving_days": PROVING_DAYS, "proving_min": PROVING_MIN_TRADES,
+               "proving_avg": PROVING_MIN_AVG}
+        with open(os.path.join(os.path.dirname(os.path.abspath(args.out)), "office.html"), "w", encoding="utf-8") as f:
+            f.write(office.build_office(st, ctx))
+    except Exception as e:
+        print(f"Office page skipped: {e}")
     if os.path.exists("inspector.html"):        # Inspector's latest backtest report rides along with the dashboard
         try:
             import shutil
