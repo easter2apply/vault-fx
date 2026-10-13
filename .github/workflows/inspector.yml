@@ -1,5 +1,7 @@
 name: Inspector
 on:
+  schedule:
+    - cron: "7 14 * * 0"        # every Sunday around 10 AM ET
   workflow_dispatch:
     inputs:
       months:
