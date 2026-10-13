@@ -696,6 +696,25 @@ def daily_candles(api, st, pair, now):
     return [dict(c) for c in cache[pair]["c"]]
 
 
+def accuracy_change(st):
+    """Win rate and average result before vs after Inspector's first correction (your first /approve)."""
+    def summ(xs):
+        if not xs:
+            return None
+        rs = [x.get("r", 0) or 0 for x in xs]
+        return {"n": len(xs), "win": sum(1 for x in xs if (x.get("pl") or 0) > 0) / len(xs), "avg": sum(rs) / len(rs)}
+    since = st.get("inspector_since")
+    closed = [c for c in st.get("closed", []) if c.get("closed_ts")]
+    bot = case_file("bot")
+    backtest = {"n": bot["all"]["n"], "win": bot["all"]["win"], "avg": bot["all"]["avg"]} if bot and bot.get("all", {}).get("n") else None
+    if not since:
+        return {"state": "waiting", "now": summ(closed) or backtest, "source": "live" if closed else "backtest"}
+    before = summ([c for c in closed if c["closed_ts"] < since]) or backtest
+    after = summ([c for c in closed if c["closed_ts"] >= since])
+    return {"state": "tracking", "since": since, "before": before, "after": after,
+            "before_source": "live" if any(c["closed_ts"] < since for c in closed) else "backtest"}
+
+
 def proving_checks(st, tg):
     for cid in cs.CASES:
         P = st.setdefault("paper", {}).setdefault(cid, {"open": {}, "closed": [], "started": time.time()})
@@ -950,6 +969,8 @@ def run(log, full=True):
                                f"Send /approve {cid} anyway to switch now.")
                     else:
                         st["strategy"] = cid
+                        st.setdefault("inspector_since", time.time())          # when Inspector first changed how the bot trades
+                        st.setdefault("inspector_fixes", []).append({"t": time.time(), "case": cid})
                         feed_add(st, "event", "New strategy", who="Chair", text=f"Promoted {cs.CASES[cid]['name']}. The council steps aside.")
                         hindsight(st, f"You promoted {cs.CASES[cid]['name']}. It now trades your practice account.", None, "verdict")
                         tg.say(f"✅ {cs.CASES[cid]['name']} is now the bot's strategy (practice account). The council stops trading; "
@@ -3392,7 +3413,7 @@ def main():
     try:                                         # Inspector's Office tab
         ctx = {"files": inspector_files(), "when": _FILES.get("when"), "cases": cs.CASES, "status": proving_status,
                "names": NAMES, "tz": LOCAL_TZ, "proving_days": PROVING_DAYS, "proving_min": PROVING_MIN_TRADES,
-               "proving_avg": PROVING_MIN_AVG}
+               "proving_avg": PROVING_MIN_AVG, "accuracy": accuracy_change(st)}
         with open(os.path.join(os.path.dirname(os.path.abspath(args.out)), "office.html"), "w", encoding="utf-8") as f:
             f.write(office.build_office(st, ctx))
     except Exception as e:

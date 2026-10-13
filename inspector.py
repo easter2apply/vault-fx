@@ -616,7 +616,53 @@ def verdict_for(rs, ts_list, costs, split_ts, label_first, label_last):
     return {"verdict": v, "why": why, "all": s_all, "first": sf, "last": sl_, "cost": round(cost, 3)}
 
 
-def case_board(setups, fifty, case_trades, labres, months):
+def improvements(items, verdict, s_all, need, cost):
+    """Concrete 'what would help' ideas for one strategy, ranked by how much they would have changed its average.
+    items: (r, ts, cost, hour, weekday, pair)."""
+    rs = [x[0] for x in items]
+    n = len(rs)
+    if n == 0:
+        return ["No trades yet. It needs time (or more history) before it can be judged."]
+    base = sum(rs) / n
+    ideas = []
+    floor_n = max(15, int(n * 0.06))
+
+    def drop(label, keyf, fmt):
+        groups = {}
+        for x in items:
+            groups.setdefault(keyf(x), []).append(x[0])
+        cands = [(k, v) for k, v in groups.items() if len(v) >= floor_n and len(v) < n]
+        if not cands:
+            return
+        k, v = min(cands, key=lambda kv: sum(kv[1]) / len(kv[1]))
+        rest = [x[0] for x in items if keyf(x) != k]
+        new = sum(rest) / len(rest)
+        g_avg = sum(v) / len(v)
+        if new - base >= 0.03 and (g_avg < 0 or g_avg < base - 0.3):      # only clear drags: a losing group, or far below the rest
+            ideas.append((new - base, f"Skip {fmt(k)}: it averaged {sum(v) / len(v):+.2f}R there ({len(v)} trades). "
+                                      f"Without it: {new:+.2f}R a trade instead of {base:+.2f}R."))
+    drop("hours", lambda x: x[3] // 3 * 3, lambda h: f"{ET_LABEL(h)}–{ET_LABEL((h + 3) % 24)} ET")
+    drop("day", lambda x: x[4], lambda d: ["Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays", "Sundays"][d])
+    drop("pair", lambda x: x[5], lambda p: vf.NAMES.get(p, p))
+    if cost >= 0.06:
+        ideas.append((cost / 2, f"The spread eats {cost:.2f}R a trade. Trading a slower timeframe or only when spreads are tight "
+                                 f"could win back up to {cost / 2:.2f}R a trade."))
+    if need is not None and s_all["win"] is not None and s_all["win"] < need:
+        gap = (need - s_all["win"]) * 100
+        ideas.append((0.0, f"It wins {s_all['win']:.0%} but needs {need:.0%}: about {gap:.0f} more wins per 100 trades, "
+                           "or a target further away so each win pays more."))
+    ideas.sort(key=lambda x: -x[0])
+    out = [t for _, t in ideas[:3]]
+    if verdict == "CLEARED" and n < 60:
+        out.insert(0, f"Only {n} trades so far. Test it on more history (24 months) before trusting it.")
+    if verdict == "CLEARED" and not out:
+        out = ["Nothing obvious to fix. Next step: prove it live in the proving ground."]
+    if out and verdict != "CLEARED":
+        out.append("Ideas come from this same history, so each one has to be re-tested before it counts.")
+    return out
+
+
+def case_board(setups, fifty, case_trades, labres, months, traded=None):
     rows = [s for s in setups]
     if not rows:
         return {"cases": [], "split": None}
@@ -630,30 +676,37 @@ def case_board(setups, fifty, case_trades, labres, months):
     def add(cid, name, kind, what, items):
         items = sorted(items, key=lambda x: x[1])
         v = verdict_for([x[0] for x in items], [x[1] for x in items], [x[2] for x in items], split_ts, lf, ll)
+        _, _, _, need, cost = explain([x[0] for x in items], [x[2] for x in items])
+        v["improve"] = improvements(items, v["verdict"], v["all"], need, cost)
         board.append(dict(v, id=cid, name=name, kind=kind, what=what, per_month=len(items) / max(months, 1e-9)))
 
     trades = [s for s in setups if s["approved"]]
     add("bot", "Your bot today (council trades)", "current", "Every trade the council would have approved, managed like the live bot.",
-        [(s["r_trade"], s["ts"], s["cost_r"]) for s in trades])
+        [(s["r_trade"], s["ts"], s["cost_r"], s["hour"], s["wd"], s["pair"]) for s in trades])
     names = {"pullback": "1-hour pullback", "crossover": "1-hour crossover", "pullback 15m": "15-minute pullback",
              "crossover 15m": "15-minute crossover", "London breakout": "London breakout"}
     for key, nm in names.items():
         add("setup:" + key, nm, "current", f"Every {nm if nm.startswith('London') else nm[0].lower() + nm[1:]} setup the bot saw, before the council voted.",
-            [(s["r"], s["ts"], s["cost_r"]) for s in setups if s["setup"] == key])
+            [(s["r"], s["ts"], s["cost_r"], s["hour"], s["wd"], s["pair"]) for s in setups if s["setup"] == key])
     if fifty:
         add("fifty", "50 Pips a Day (as written)", "article",
             "From the MondFx article: trend agreement, pullback to a 20-candle level, pin bar or engulfing, 50-pip target, 25-pip stop.",
-            [(f["x"][0][0], f["ts"], f["spread_pips"] / 25) for f in fifty])
+            [(f["x"][0][0], f["ts"], f["spread_pips"] / 25, f["hour"], dt.datetime.fromtimestamp(f["ts"], UTC).weekday(), f["pair"]) for f in fifty])
     for cid, case in cs.CASES.items():
+        only = case.get("pairs")
+        if only and traded is not None and not set(only) & set(traded):
+            continue                                   # e.g. gold cases on an account that can't trade gold
         add("case:" + cid, case["name"], "new", case["what"],
-            [(t["r"], t["ts"], t["cost_r"]) for t in case_trades if t["case"] == cid])
+            [(t["r"], t["ts"], t["cost_r"], t["hour"], t["wd"], t["pair"]) for t in case_trades if t["case"] == cid])
     if labres and labres.get("champ"):
         c = labres["champ"]
         te = c["test"]
         v = "CLEARED" if labres["passed"] else "GUILTY" if (te["avg"] or 0) <= 0.0 else "UNDER INVESTIGATION"
         board.append({"id": "lab", "name": "Lab's best tuned rule", "kind": "lab", "what": rule_text(c["rule"]), "verdict": v,
                       "why": f"Tuned on training months ({c['train']['avg']:+.2f}R), then {te['avg']:+.2f}R on the unseen months.",
-                      "all": te, "first": c["train"], "last": te, "cost": None, "per_month": None})
+                      "all": te, "first": c["train"], "last": te, "cost": None, "per_month": None,
+                      "improve": ["This rule was tuned on the same months it's graded on, so only the unseen-month number counts."
+                                  if not labres["passed"] else "Held up on unseen months. Worth adding as its own case for the proving ground."]})
     order = {"CLEARED": 0, "UNDER INVESTIGATION": 1, "GUILTY": 2}
     board.sort(key=lambda b: (order[b["verdict"]], -((b["all"] or {}).get("avg") or -9)))
     return {"cases": board, "split": split_ts, "first_label": lf, "last_label": ll}
@@ -824,7 +877,8 @@ def board_html(B):
           <span class="pill {STAMP[c['verdict']]}">{c['verdict'].title()}</span></div>
           <p class="fine">{html.escape(c['what'])}</p>
           <p>{html.escape(c['why'])}</p>
-          <p class="fine">{a.get('n', 0)} trades · {pc(a.get('win'))} wins · {fr(a.get('avg'))} a trade</p></article>"""
+          <p class="fine">{a.get('n', 0)} trades · {pc(a.get('win'))} wins · {fr(a.get('avg'))} a trade</p>
+          {('<p><b>What would help:</b></p><ul class="fine">' + ''.join(f'<li>{html.escape(t)}</li>' for t in c.get('improve', [])) + '</ul>') if c.get('improve') else ''}</article>"""
     return f"""<section><h2>🗂 Case board</h2><p class="fine">Every strategy Inspector has tested. CLEARED means it made money in both the
     {B.get('first_label', 'first months')} and the {B.get('last_label', 'last months')}. GUILTY means it lost overall.</p><div class="cases">{cards}</div></section>"""
 
@@ -957,7 +1011,14 @@ def main():
         info = {}
         log.append(f"instrument info unavailable ({e})")
     setups, fifty, case_trades = [], [], []
-    for pair in [p.strip() for p in args.pairs.split(",") if p.strip()]:
+    wanted = [p.strip() for p in args.pairs.split(",") if p.strip()]
+    if info:
+        skipped = [p for p in wanted if p not in info]
+        wanted = [p for p in wanted if p in info]
+        if skipped:
+            log.append("Not tradable on your OANDA account, so not tested: " + ", ".join(vf.NAMES.get(p, p) for p in skipped))
+    traded = list(wanted)
+    for pair in wanted:
         try:
             m15 = fetch(token, pair, "M15", test_from - dt.timedelta(days=5))
             h1 = fetch(token, pair, "H1", test_from - dt.timedelta(days=20))
@@ -973,7 +1034,8 @@ def main():
     g = grade(setups, args.months)
     g["lab"] = lab(setups, log)
     g["fifty"] = fifty_lab(fifty, log)
-    g["board"] = case_board(setups, fifty, case_trades, g["lab"], args.months)
+    g["board"] = case_board(setups, fifty, case_trades, g["lab"], args.months, traded)
+    g["traded"] = traded
     g["boosters"] = boosters(setups)
     log.append(f"Cases: {len(case_trades)} trades across {len(cs.CASES)} new strategies")
     log.append(f"Finished in {(time.time() - started) / 60:.1f} min")

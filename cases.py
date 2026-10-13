@@ -181,7 +181,7 @@ CASES = {
                        "what": "Between 8 PM and 2 AM ET, when price stretches 2 standard deviations from its 15-min average with RSI extreme, bet it snaps back to the average. Stop 1.5 ATR, out within 8 hours."},
     "daily_breakout": {"name": "20-day breakout", "fn": daily_breakout,
                        "what": "Slow trend-following on daily candles: buy a close above the 20-day high, sell a close below the 20-day low, and ride it with a trailing stop. Few trades, small spread costs."},
-    "gold_breakout": {"name": "Gold London breakout", "fn": gold_breakout,
+    "gold_breakout": {"name": "Gold London breakout", "fn": gold_breakout, "pairs": ["XAU_USD"],
                       "what": "Gold only (the closest to break-even in the first report): trade the first break of the overnight range between 3 AM and 8 AM ET, stop at the middle of the range, target 2R."},
     "ny_opening_range": {"name": "New York opening range", "fn": ny_opening_range,
                          "what": "Mark the 9–10 AM ET range, trade the first close outside it before 1 PM ET. Stop at the middle of the range, target 1.5R, out within 6 hours."},
