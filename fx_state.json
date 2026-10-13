@@ -2,11 +2,11 @@
  "account": {
   "balance": 497.87,
   "currency": "USD",
-  "margin_avail": 99750.7242,
-  "nav": 499.378,
-  "oanda_nav": 99999.6242,
-  "unrealized": 1.508,
-  "updated": 1791851415.671451
+  "margin_avail": 99752.2331,
+  "nav": 500.8869,
+  "oanda_nav": 100001.1331,
+  "unrealized": 3.0169,
+  "updated": 1791851624.435249
  },
  "bot_username": "EVaultFX_bot",
  "chat_id": "7590441188",
@@ -2259,6 +2259,16 @@
    "title": "Scanned 6 markets: 0 setups on the latest candle",
    "verdict": null,
    "who": null
+  },
+  {
+   "kind": "event",
+   "lines": [],
+   "ok": null,
+   "t": 1791851625.6239495,
+   "text": "Locked the USD/JPY stop at entry. This one can't lose now.",
+   "title": "USD/JPY stop to breakeven",
+   "verdict": null,
+   "who": "Risk"
   }
  ],
  "history": [
@@ -2370,7 +2380,7 @@
  "last_daily": "2026-10-12",
  "last_deploy": 1791851425.6705608,
  "last_full_run": 1791851415.671451,
- "last_run": 1791851415.671451,
+ "last_run": 1791851624.435249,
  "last_vote": {
   "approved": false,
   "ask": 0,
@@ -2841,7 +2851,7 @@
   }
  },
  "paused": null,
- "peak": 499.4408,
+ "peak": 500.8869,
  "record": {
   "losses": 1,
   "pl": -2.13,
@@ -3262,18 +3272,19 @@
  ],
  "trades": {
   "12": {
+   "breakeven": true,
    "dir": -1,
    "entry": 158.5,
    "opened": "2026-10-13T00:15:15",
    "pair": "USD_JPY",
-   "price": 158.4435,
+   "price": 158.3955,
    "risk": 4.98,
    "setup": "crossover 15m",
-   "sl": 158.58160769478525,
+   "sl": 158.5,
    "tf": "M15",
    "tp": 158.3750884578221,
    "units": 4978,
-   "upl": 1.508,
+   "upl": 3.0169,
    "votes": {
     "Doubt": false,
     "Momentum": true,
