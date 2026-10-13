@@ -132,10 +132,60 @@ def play_v(m15, start_i, d, entry, risk, target_r, mode):
     return round((px - entry) * d / risk, 3), m15[j]["ts"]
 
 
+# ───────────────────────────── the "50 Pips a Day" strategy (from the article) ──
+# Turned into exact rules so it can be tested:
+#   trend:   4-hour trend (EMA 50/200) and 1-hour trend (EMA 20/50) point the same way
+#   level:   the 15-min candle pulls back to a recent support (lowest low of the previous 20 candles, within 0.3 ATR)
+#            in an uptrend, or a recent resistance (highest high) in a downtrend
+#   trigger: that candle is a pin bar (long wick, small body, closes in the trend's third) or an engulfing candle
+#   filter:  RSI not stretched (below 70 for buys, above 30 for sells); 7:00–17:00 GMT; first signal per pair per day
+#   exits:   take profit 50 pips, stop 25–50 pips
+FIFTY_EXITS = {
+    "stop 25 pips, target 50 (1:2, the article's pick)": (25, 50, None),
+    "stop 30 pips, target 50": (30, 50, None),
+    "stop 50 pips, target 50 (1:1)": (50, 50, None),
+    "stop 25, target 50, close after 24h": (25, 50, "day"),
+}
+
+
+def pip_size(pair, pip_loc):
+    if pair == "XAU_USD":
+        return 0.1                                              # gold: count $0.10 as a pip, so 50 pips = $5
+    return 0.01 if pair.endswith("JPY") else 0.0001
+
+
+def fifty_signal(m15, j, a, a15):
+    """Returns +1 / -1 when the article's entry appears on 15-min candle j, else 0."""
+    d = a["trend"]
+    if a["h4_trend"] != d or not a15.get("atr") or j < 22:
+        return 0
+    c, p = m15[j], m15[j - 1]
+    rng = c["h"] - c["l"]
+    if rng <= 0:
+        return 0
+    body = abs(c["c"] - c["o"])
+    prev = m15[j - 21:j - 1]
+    tol = 0.3 * a15["atr"]
+    r = a15.get("rsi") or 50
+    if d == 1:
+        level = min(x["l"] for x in prev)
+        at_level = abs(c["l"] - level) <= tol
+        pin = (min(c["o"], c["c"]) - c["l"]) >= 2 * body and (min(c["o"], c["c"]) - c["l"]) >= 0.6 * rng and c["c"] >= c["l"] + rng * 2 / 3
+        engulf = p["c"] < p["o"] and c["c"] > c["o"] and c["c"] >= p["o"] and c["o"] <= p["c"]
+        return 1 if at_level and (pin or engulf) and r < 70 else 0
+    level = max(x["h"] for x in prev)
+    at_level = abs(c["h"] - level) <= tol
+    pin = (c["h"] - max(c["o"], c["c"])) >= 2 * body and (c["h"] - max(c["o"], c["c"])) >= 0.6 * rng and c["c"] <= c["h"] - rng * 2 / 3
+    engulf = p["c"] > p["o"] and c["c"] < c["o"] and c["c"] <= p["o"] and c["o"] >= p["c"]
+    return -1 if at_level and (pin or engulf) and r > 30 else 0
+
+
 # ───────────────────────────── replay one pair ───────────────────────────────
 
-def replay(pair, h1, h4, m15, test_from, pip_loc, log):
+def replay(pair, h1, h4, m15, test_from, pip_loc, log, fifty=None):
     setups = []
+    fifty_days = set()
+    pip = pip_size(pair, pip_loc)
     i1 = i4 = 0                                      # how many H1 / H4 candles are complete
     a_cache = {}
     busy_until = -1                                  # index in m15 when this pair's current trade closes
@@ -170,6 +220,14 @@ def replay(pair, h1, h4, m15, test_from, pip_loc, log):
         mw = m15[max(0, j - WINDOW + 1):j + 1]
         a15 = vf.analyze(mw, h1[max(0, i1 - WINDOW):i1])
         a15.update(extra_trend=a["h4_trend"], htf_label="1-hour and 4-hour trends", spread_max=vf.MAX_SPREAD_ATR_15M)
+        if fifty is not None and 7 <= now.hour - (1 if now.minute == 0 else 0) < 17 and now.strftime("%Y-%m-%d") not in fifty_days:
+            fd = fifty_signal(m15, j, a, a15)
+            if fd:
+                fifty_days.add(now.strftime("%Y-%m-%d"))
+                entry = c["ac"] if fd == 1 else c["bc"]
+                fifty.append({"pair": pair, "t": c["t"], "ts": close_ts, "hour": c["ts"] // 3600 % 24, "adx": a["adx"] or 0,
+                              "spread_pips": spread / pip,
+                              "x": [play_v(m15, j, fd, entry, sl_p * pip, tp_p / sl_p, mode) for (sl_p, tp_p, mode) in FIFTY_EXITS.values()]})
         if a15["setup"] and a15["atr"]:
             a15["setup"] += " 15m"
             decisions.append(("M15", a15, spread))
@@ -419,6 +477,71 @@ def lab(setups, log):
             "train_months": train_months, "test_months": test_months}
 
 
+def fifty_lab(rows, log):
+    rows = sorted(rows, key=lambda s: s["ts"])
+    if len(rows) < 60:
+        return {"n": len(rows)}
+    t0, t1 = rows[0]["ts"], rows[-1]["ts"]
+    split_ts = t0 + (t1 - t0) * 2 / 3
+    exits = list(FIFTY_EXITS)
+
+    def sim(cands, xi, pairs=None):
+        tr, te, pp = [], [], {}
+        for s in cands:
+            if pairs is not None and s["pair"] not in pairs:
+                continue
+            r = s["x"][xi][0]
+            if s["ts"] < split_ts:
+                tr.append(r); pp.setdefault(s["pair"], []).append(r)
+            else:
+                te.append(r)
+        return tr, te, pp
+    hours = {"7:00–17:00 GMT (London + New York)": (7, 17), "12:00–16:00 GMT only (the overlap)": (12, 16)}
+    spreads = {"any spread": 99, "spread under 2 pips": 2}
+    trends = {"any trend": 0, "strong trend (ADX 25+)": 25}
+    res = []
+    for hn, (h0, h1_) in hours.items():
+        for sn, smax in spreads.items():
+            for tn, tmin in trends.items():
+                cands = [s for s in rows if h0 <= s["hour"] < h1_ and s["spread_pips"] <= smax and s["adx"] >= tmin]
+                for xi, xn in enumerate(exits):
+                    tr, te, pp = sim(cands, xi)
+                    rule = {"hours": hn, "spread": sn, "trend": tn, "exit": xn, "pairs": "all pairs"}
+                    res.append((rule, stats(tr), stats(te)))
+                    win = sorted(p for p, rs in pp.items() if len(rs) >= 8 and sum(rs) / len(rs) > 0)
+                    if win and len(win) < len(pp):
+                        tr2, te2, _ = sim(cands, xi, set(win))
+                        res.append((dict(rule, pairs="only " + ", ".join(vf.NAMES.get(p, p) for p in win)), stats(tr2), stats(te2)))
+    as_written = next(r for r in res if r[0] == {"hours": list(hours)[0], "spread": "any spread", "trend": "any trend",
+                                                  "exit": exits[0], "pairs": "all pairs"})
+    ok = sorted([r for r in res if r[1]["n"] >= 30 and r[2]["n"] >= 20], key=lambda r: -(r[1]["avg"] or -9))
+    best = ok[0] if ok else None
+    passed = bool(best and (best[2]["avg"] or -9) >= 0.05 and best[2]["total"] > 0)
+    fmt = lambda x: dt.datetime.fromtimestamp(x, UTC).strftime("%b %d")
+    by_pair = {}
+    for s in rows:
+        by_pair.setdefault(s["pair"], []).append(s["x"][0][0])
+    log.append(f"50 pips: {len(rows)} signals, tried {len(res)} versions")
+    return {"n": len(rows), "per_month": len(rows) / max(1e-9, (t1 - t0) / (30.4 * 86400)),
+            "written": {"train": as_written[1], "test": as_written[2], "all": stats([s["x"][0][0] for s in rows])},
+            "best": {"rule": best[0], "train": best[1], "test": best[2]} if best else None, "passed": passed,
+            "held": sum(1 for r in ok[:10] if (r[2]["avg"] or -9) > 0.05), "top": [{"rule": r[0], "train": r[1], "test": r[2]} for r in ok[:6]],
+            "pairs": {k: stats(v) for k, v in by_pair.items()},
+            "train_span": f"{fmt(t0)} – {fmt(split_ts)}", "test_span": f"{fmt(split_ts)} – {fmt(t1)}"}
+
+
+def fifty_verdict(F):
+    if not F or F.get("n", 0) < 60:
+        return f"Too few signals ({(F or {}).get('n', 0)}) to judge the 50 Pips strategy."
+    w = F["written"]["all"]
+    head = (f"As written, the 50 Pips strategy {'made' if w['avg'] > 0 else 'lost'} {w['avg']:+.2f}R per trade "
+            f"over {w['n']} trades ({pc(w['win'])} wins; it needs 34% at 1:2 just to break even).")
+    if F["passed"]:
+        b = F["best"]
+        return head + f" Its best version held up on unseen months: {b['test']['avg']:+.2f}R over {b['test']['n']} trades."
+    return head + " None of its versions held up on the unseen months."
+
+
 def rule_text(r):
     parts = [r["setups"], r["hours"], r["council"], r["trend"], r["exit"], r["pairs"]]
     return " · ".join(p for p in parts if p not in ("any hour", "any trend", "all pairs"))
@@ -515,6 +638,8 @@ table.lab td{{font-size:13px}} td.rk{{color:var(--muted);width:28px}} tr.base td
 
 {lab_html(g.get('lab'))}
 
+{fifty_html(g.get('fifty'))}
+
 <section><h2>Does the council help?</h2>
 <div class="kpis">
  <div class="kpi"><span>Setups it took</span><b class="{'pos' if (t['avg'] or 0) > 0 else 'neg'}">{fr(t['avg'])}</b><small>{t['n']} trades</small></div>
@@ -541,6 +666,33 @@ Not simulated: the news blackout, the daily loss limit, the losing-streak breake
 (all officers count equally here). Results are in R: +1.5R is a full win, −1R a full loss.</p>
 <details><summary>Run log</summary><ul class="fine">{''.join(f'<li>{html.escape(x)}</li>' for x in log)}</ul></details></section>
 </div></body></html>"""
+
+
+def fifty_html(F):
+    if not F:
+        return ""
+    def cell(s):
+        return ("<td class='n'>—</td>" if not s["n"] else
+                f"<td class='n {'pos' if s['avg'] > 0 else 'neg'}'>{s['avg']:+.2f}R<small>{s['n']} trades · {pc(s['win'])} win</small></td>")
+    body = ""
+    if F.get("written"):
+        w = F["written"]
+        body += f"<tr class='base'><td>As written: 7–17 GMT, stop 25 / target 50, every pair</td>{cell(w['train'])}{cell(w['test'])}</tr>"
+    for r in F.get("top", []):
+        rr = r["rule"]
+        txt = " · ".join(x for x in (rr["hours"], rr["spread"], rr["trend"], rr["exit"], rr["pairs"]) if x not in ("any spread", "any trend", "all pairs"))
+        body += f"<tr><td>{html.escape(txt)}</td>{cell(r['train'])}{cell(r['test'])}</tr>"
+    pairs = "".join(f"<tr><td>{vf.NAMES.get(k, k)}</td><td class='n'>{s['n']}</td><td class='n'>{pc(s['win'])}</td>"
+                    f"<td class='n {'pos' if s['avg'] > 0 else 'neg'}'>{fr(s['avg'])}</td></tr>"
+                    for k, s in sorted(F.get("pairs", {}).items(), key=lambda kv: -kv[1]['avg']))
+    return f"""<section><h2>📄 The "50 Pips a Day" strategy</h2>
+<p class="verdict {'good' if F.get('passed') else 'bad'}">{html.escape(fifty_verdict(F))}</p>
+<p class="fine">Rules tested: the 4-hour and 1-hour trends agree; a 15-minute candle pulls back to the lowest low (uptrend) or highest high (downtrend)
+of the previous 20 candles and forms a pin bar or engulfing candle; RSI isn't stretched; 7:00–17:00 GMT; the first signal per pair per day.
+Take profit 50 pips, stop 25–50 pips (gold: $5 target). About {F.get('per_month', 0):.0f} signals a month across all pairs.
+Training {F.get('train_span', '')}, unseen test {F.get('test_span', '')}.</p>
+<div class="tbl"><table class="lab"><tr><th>Version</th><th>Training</th><th>Test (unseen)</th></tr>{body}</table></div>
+<h3>By pair (as written)</h3><div class="tbl"><table><tr><th></th><th>Trades</th><th>Win</th><th>Avg</th></tr>{pairs}</table></div></section>"""
 
 
 def lab_html(L):
@@ -593,6 +745,13 @@ def telegram_summary(g):
                   f"Best rule: {rule_text(c['rule'])}",
                   f"Training {c['train']['avg']:+.2f}R ({c['train']['n']} trades) → unseen months {c['test']['avg']:+.2f}R ({c['test']['n']} trades)",
                   f"{L['held']} of the top {len(L['top'])} rules held up on the unseen months."]
+    F = g.get("fifty")
+    if F:
+        lines += ["", "📄 50 Pips a Day: " + fifty_verdict(F)]
+        if F.get("best"):
+            b = F["best"]
+            lines.append(f"Its best version: {b['rule']['hours']}, {b['rule']['exit']}, {b['rule']['pairs']} → "
+                         f"training {b['train']['avg']:+.2f}R, unseen {b['test']['avg']:+.2f}R ({b['test']['n']} trades)")
     lines += ["", "What to do:"] + [f"• {x}" for x in g["advice"][:3]]
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     if "/" in repo:
@@ -618,7 +777,7 @@ def main():
     except Exception as e:
         info = {}
         log.append(f"instrument info unavailable ({e})")
-    setups = []
+    setups, fifty = [], []
     for pair in [p.strip() for p in args.pairs.split(",") if p.strip()]:
         try:
             m15 = fetch(token, pair, "M15", test_from - dt.timedelta(days=5))
@@ -628,10 +787,11 @@ def main():
             log.append(f"{pair}: skipped ({e})")
             continue
         log.append(f"{pair}: {len(m15)} 15-min ({m15[0]['t'][:10] if m15 else '?'} → {m15[-1]['t'][:10] if m15 else '?'}), {len(h1)} 1-hour, {len(h4)} 4-hour candles")
-        setups += replay(pair, h1, h4, m15, test_from.timestamp(), int(info.get(pair, {}).get("pipLocation", -4)), log)
+        setups += replay(pair, h1, h4, m15, test_from.timestamp(), int(info.get(pair, {}).get("pipLocation", -4)), log, fifty)
         print(log[-1], flush=True)
     g = grade(setups, args.months)
     g["lab"] = lab(setups, log)
+    g["fifty"] = fifty_lab(fifty, log)
     log.append(f"Finished in {(time.time() - started) / 60:.1f} min")
     with open("inspector.html", "w", encoding="utf-8") as f:
         f.write(render(g, log, started))
