@@ -1,0 +1,33 @@
+name: Inspector
+on:
+  workflow_dispatch:
+    inputs:
+      months:
+        description: "How many months of history to replay"
+        default: "6"
+permissions:
+  contents: write
+concurrency:
+  group: inspector
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Replay history through the council
+        env:
+          OANDA_API_TOKEN: ${{ secrets.OANDA_API_TOKEN }}
+          OANDA_ACCOUNT_ID: ${{ secrets.OANDA_ACCOUNT_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: python inspector.py --months "${{ inputs.months || '6' }}"
+      - name: Save the report
+        run: |
+          git config user.name "inspector"
+          git config user.email "inspector@users.noreply.github.com"
+          git add inspector.html inspector.json
+          git diff --cached --quiet || (git commit -m "Inspector report" && git pull --rebase && git push)
