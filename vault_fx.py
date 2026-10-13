@@ -1186,6 +1186,20 @@ def learning_card(st):
             "verdict": verdict, "cls": cls, "trend": trend}
 
 
+def inspector_link():
+    """A card linking Inspector's backtest report, once it has run."""
+    try:
+        g = json.load(open("inspector.json"))
+    except (OSError, ValueError):
+        return ""
+    t = g["grade"]["trades"]
+    when = dt.datetime.fromtimestamp(g["when"], LOCAL_TZ).strftime("%b %d")
+    avg = t.get("avg")
+    return f"""<section class="learnwrap"><h2>🕵️ Inspector's backtest</h2>
+  <p>{g['grade']['months']:g} months replayed ({when}): {t['n']} trades, {('%+.2fR' % avg) if avg is not None else '—'} per trade.
+  <a href="inspector.html">Read the full report →</a></p></section>"""
+
+
 def learning_html(st):
     c = learning_card(st)
     f = lambda x: "—" if x is None else f"{x:+.2f}R"
@@ -3040,6 +3054,7 @@ details {{ color:var(--muted) }} .fine {{ color:var(--muted); font-size:12px; ma
 <section><h2>Open trades</h2><div class="tbl"><table><tr><th>Pair</th><th>Side</th><th>Units</th><th>Entry</th><th>Now</th><th>Stop</th><th>Target</th><th>P&amp;L</th></tr>{open_rows}</table></div></section>
 <section><h2>Big news ahead</h2><ul class="news">{news_rows}</ul><p class="fine">No new trades from {NEWS_BEFORE_MIN} min before to {NEWS_AFTER_MIN} min after these.</p></section>
 {learning_html(st)}
+{inspector_link()}
 <section><h2>Who called it?</h2><p class="fine">{html.escape(learn_line)}</p><div class="tbl"><table><tr><th>Voter</th><th>Called it</th><th>Vote weight</th><th>Right / scored</th></tr>{board_rows}</table></div></section>
 <section><h2>Recent closed trades</h2><div class="tbl"><table><tr><th>Pair</th><th>Side</th><th>Units</th><th>Result</th></tr>{closed_rows}</table></div></section>
 <details><summary>Scan log</summary><ul>{''.join(f'<li>{html.escape(l)}</li>' for l in log)}</ul></details>
@@ -3086,6 +3101,12 @@ def main():
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as f:
         f.write(build_html(st, log))
+    if os.path.exists("inspector.html"):        # Inspector's latest backtest report rides along with the dashboard
+        try:
+            import shutil
+            shutil.copy("inspector.html", os.path.join(os.path.dirname(os.path.abspath(args.out)), "inspector.html"))
+        except OSError:
+            pass
     deploy = mode == "full" and (time.time() - st.get("last_deploy", 0) >= DEPLOY_EVERY_MIN * 60 or st.pop("_changed", False))
     st.pop("_changed", None)
     if deploy:
