@@ -2,11 +2,11 @@
  "account": {
   "balance": 503.52,
   "currency": "USD",
-  "margin_avail": 99803.9619,
-  "nav": 505.15409999999997,
-  "oanda_nav": 100005.2805,
-  "unrealized": 1.6341,
-  "updated": 1791893113.632152
+  "margin_avail": 99803.8405,
+  "nav": 504.9072,
+  "oanda_nav": 100005.1546,
+  "unrealized": 1.3872000000000002,
+  "updated": 1791893412.422673
  },
  "bot_username": "EVaultFX_bot",
  "chat_id": "7590441188",
@@ -1687,6 +1687,10 @@
   [
    1791892512,
    504.76
+  ],
+  [
+   1791893412,
+   504.91
   ]
  ],
  "errors": [
@@ -4610,13 +4614,13 @@
      "who": "USD/CAD"
     },
     {
-     "say": "\u25b2 ADX 27, RSI 44: in a trade",
+     "say": "\u25b2 ADX 28, RSI 41: in a trade",
      "vote": null,
      "who": "USD/CHF"
     }
    ],
    "ok": null,
-   "t": 1791893127.9935174,
+   "t": 1791893430.2441323,
    "text": null,
    "title": "Scanned 6 markets: 1 setup on the latest candle",
    "verdict": null,
@@ -5350,16 +5354,16 @@
   "USD_CAD": "2026-10-13T11:00:00",
   "USD_CAD:LB": "2026-10-13T09:00:00",
   "USD_CAD:M15": "2026-10-13T11:45:00",
-  "USD_CHF": "2026-10-13T10:00:00",
-  "USD_CHF:M15": "2026-10-13T11:30:00",
+  "USD_CHF": "2026-10-13T11:00:00",
+  "USD_CHF:M15": "2026-10-13T11:45:00",
   "USD_JPY": "2026-10-13T11:00:00",
   "USD_JPY:LB": "2026-10-13T08:30:00",
   "USD_JPY:M15": "2026-10-13T11:45:00"
  },
  "last_daily": "2026-10-12",
  "last_deploy": 1791893128.01407,
- "last_full_run": 1791893113.632152,
- "last_run": 1791893113.632152,
+ "last_full_run": 1791893412.422673,
+ "last_run": 1791893412.422673,
  "last_vote": {
   "approved": false,
   "ask": 0,
@@ -6362,32 +6366,33 @@
    },
    "rsi": 30.854399267446965,
    "setup": null,
-   "spread_pips": 1.9999999999997797,
+   "spread_pips": 1.7000000000000348,
    "tradeable": true,
    "trend": 1
   },
   "USD_CHF": {
-   "adx": 26.86067351496317,
-   "atr_pips": 6.17803326491222,
-   "bar": "2026-10-13T10:00:00",
-   "chg": -0.043215211754540836,
-   "close": 0.83268,
+   "adx": 27.58645137451482,
+   "atr_pips": 6.165316603164194,
+   "bar": "2026-10-13T11:00:00",
+   "chg": -0.07442619802169811,
+   "close": 0.83242,
    "h4_trend": 1,
    "prec": 5,
    "ready": {
-    "dir": 1,
+    "dir": -1,
     "in_trade": true,
     "of": 6,
-    "passed": 5,
+    "passed": 4,
     "session": true,
-    "tf": "H1",
+    "tf": "M15",
     "waiting": [
-     "a pullback to the trend line or a fresh crossover"
+     "a pullback to the trend line or a fresh crossover",
+     "1-hour and 4-hour trends disagree"
     ]
    },
-   "rsi": 44.29700806033021,
+   "rsi": 41.07254563115315,
    "setup": null,
-   "spread_pips": 1.40000000000029,
+   "spread_pips": 1.60000000000049,
    "tradeable": true,
    "trend": 1
   },
@@ -6413,7 +6418,7 @@
    },
    "rsi": 42.13514501822839,
    "setup": null,
-   "spread_pips": 1.4000000000010004,
+   "spread_pips": 1.6999999999995907,
    "tradeable": true,
    "trend": -1
   }
@@ -6546,7 +6551,7 @@
   "EUR_USD": "2026-10-13T11:45:00",
   "GBP_USD": "2026-10-13T11:45:00",
   "USD_CAD": "2026-10-13T11:45:00",
-  "USD_CHF": "2026-10-13T11:30:00",
+  "USD_CHF": "2026-10-13T11:45:00",
   "USD_JPY": "2026-10-13T11:45:00"
  },
  "parties": [
@@ -7057,8 +7062,8 @@
    "s": "USD/CAD"
   },
   {
-   "c": -0.04,
-   "p": "0.83268",
+   "c": -0.07,
+   "p": "0.83242",
    "s": "USD/CHF"
   }
  ],
@@ -7068,14 +7073,14 @@
    "entry": 1.11909,
    "opened": "2026-10-13T07:30:15",
    "pair": "EUR_USD",
-   "price": 1.11882,
+   "price": 1.11871,
    "risk": 5.03,
    "setup": "London breakout",
    "sl": 1.11684,
    "tf": "LB",
    "tp": 1.12244,
    "units": 2245,
-   "upl": -0.7858,
+   "upl": -1.0327,
    "votes": {
     "Doubt": true,
     "Momentum": true,
@@ -7089,7 +7094,7 @@
    "entry": 0.83282,
    "opened": "2026-10-13T07:45:12",
    "pair": "USD_CHF",
-   "price": 0.832345,
+   "price": 0.8323400000000001,
    "risk": 5.04,
    "setup": "pullback 15m",
    "sl": 0.8335611974868682,
