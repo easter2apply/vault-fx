@@ -68,6 +68,7 @@ NEWS_AFTER_MIN = 30
 NEWS_WARN_MIN = 30           # heads-up on Telegram when news is this close and you have an open trade on it
 
 # Learning
+SCRATCH_R = 0.2              # a trade that closes within ±0.2R (stopped at breakeven) counts for nobody
 LEARN_MIN_CALLS = 20         # a voter's weight starts changing after 20 scored calls
 PROVEN_MIN = 6               # a pair + setup "theory" is proven after 6+ tests averaging +0.3R or better (party!)
 PROVEN_AVG = 0.3
@@ -283,6 +284,8 @@ def analyze(h1, h4):
         "setup": "crossover" if crossed else "pullback" if (touched and closed_right) else None,
         "atr": atr[i], "adx": adx[i], "rsi": r[i], "macd": mh[i], "macd_prev": mh[i - 1],
         "h4_trend": 1 if h4_50[-1] > h4_200[-1] else -1, "h4_close": c4[-1], "h4_ema200": h4_200[-1],
+        "hi20": max(x["h"] for x in h1[max(0, i - 20):i]) if i else None,
+        "lo20": min(x["l"] for x in h1[max(0, i - 20):i]) if i else None,
     }
 
 
@@ -303,6 +306,50 @@ def next_vote(now_utc):
             return t, live
         t += dt.timedelta(minutes=15)
     return t, []
+
+
+DOUBT_DEFAULT = {"job": "trend", "text": "does the bigger trend agree? (4-hour trend)"}
+DOUBT_JOB = dict(DOUBT_DEFAULT)      # set from your state each run; Inspector replays with the default
+
+
+def doubt_features(a, d):
+    """What Doubt's possible questions look at for one setup (None for London breakouts)."""
+    if a.get("ema20") is None or not a.get("atr"):
+        return None
+    atr = a["atr"]
+    room = None
+    if a.get("hi20") is not None:
+        room = ((a["hi20"] - a["close"]) if d == 1 else (a["close"] - a["lo20"])) / atr
+    return {"dir": d, "stretch": abs(a["close"] - a["ema20"]) / atr, "room": room}
+
+
+def doubt_job_vote(job, feats, hour_utc):
+    """Doubt's vote under an Inspector-tested question: (ok, why), "off" to sit out, or None for his original question."""
+    k = (job or {}).get("job", "trend")
+    if k == "off":
+        return "off"
+    if k == "stretch" and feats:
+        x = feats["stretch"]
+        ok = x <= job["value"]
+        return (ok, f"price is {x:.1f} ATR from its average" + ("" if ok else f", over {job['value']:g}: the move may be used up"))
+    if k == "wall" and feats:
+        x, side = feats["room"], "high" if feats["dir"] == 1 else "low"
+        if x is None or x <= 0:
+            return (True, f"no recent {side} in the way")
+        ok = x >= job["value"]
+        return (ok, f"recent {side} is {x:.1f} ATR away" + ("" if ok else ": a wall right in front of us"))
+    if k == "hours":
+        ok = hour_utc not in job["value"]
+        return (ok, "a decent hour for this" if ok else "one of the weakest hours in Inspector's replay")
+    return None
+
+
+def apply_doubt(v, a, d, now_utc, job=None):
+    jv = doubt_job_vote(job if job is not None else DOUBT_JOB, doubt_features(a, d), now_utc.hour)
+    if jv == "off":
+        v["Doubt"] = (None, "sitting out: his question didn't predict winners in Inspector's replay")
+    elif jv:
+        v["Doubt"] = jv
 
 
 def council(a, spread, risk_ok, risk_why, now_utc, pair=None):
@@ -332,6 +379,7 @@ def council(a, spread, risk_ok, risk_why, now_utc, pair=None):
     big = big and a.get("extra_trend", d) == d
     lbl = a.get("htf_label", "4-hour trend")
     v["Doubt"] = (big, f"{lbl} {('agree' if big else 'disagree') if 'and' in lbl else ('agrees' if big else 'disagrees')}")
+    apply_doubt(v, a, d, now_utc)
     return v
 
 
@@ -375,6 +423,7 @@ def council_breakout(b, risk_ok, risk_why, now_utc, pair, inf):
     v["Time"] = (in_session(pair, now_utc), "London is opening" if in_session(pair, now_utc) else "outside trading hours")
     against = b["h1_trend"] != d and b["h1_adx"] >= 25
     v["Doubt"] = (not against, "1-hour trend is strongly against it" if against else "1-hour trend isn't fighting it")
+    apply_doubt(v, b, d, now_utc)
     return v
 
 
@@ -382,17 +431,33 @@ def tally(votes):
     return (sum(1 for ok, _ in votes.values() if ok is True), sum(1 for ok, _ in votes.values() if ok is False))
 
 
+def voter_edge(b):
+    """How much better setups did when this voter said YES than when he said NO (in R), or None if too few."""
+    yn, nn = b.get("yes_n", 0), b.get("no_n", 0)
+    if yn < 5 or nn < 5:
+        return None
+    return b["yes_r"] / yn - b["no_r"] / nn
+
+
 def voter_weights(st):
-    """Voters who call it right more often get a louder vote (after LEARN_MIN_CALLS scored calls)."""
+    """Voters whose YES picks beat their NO picks get a louder vote (after LEARN_MIN_CALLS scored calls).
+    Graded on the YES-vs-NO difference, not "% right": most setups lose, so a voter who always says NO looks smart."""
     w = {}
     for n in VOTERS:
         b = (st or {}).get("scoreboard", {}).get(n, {"right": 0, "total": 0})
-        if b["total"] < LEARN_MIN_CALLS:
+        e = voter_edge(b)
+        if e is None or b["total"] < LEARN_MIN_CALLS:
             w[n] = 1.0
             continue
-        acc = (b["right"] + 2) / (b["total"] + 4)           # shrunk toward 50% so a lucky streak can't dominate
-        w[n] = round(max(0.3, min(2.0, 1 + (acc - 0.5) * 4)), 2)
+        m = min(b["yes_n"], b["no_n"])
+        e *= m / (m + 20)                                    # shrunk toward zero so a lucky streak can't dominate
+        w[n] = round(max(0.3, min(2.0, 1 + e * 2)), 2)
     return w
+
+
+def edge_text(b):
+    e = voter_edge(b or {})
+    return f"{e:+.2f}R" if e is not None else None
 
 
 def approved(votes, weights=None):
@@ -545,7 +610,10 @@ def save_state(st):
         json.dump(st, f, indent=1, sort_keys=True)
 
 
-def score(st, votes, won, was_trade):
+def score(st, votes, won, was_trade, r=None):
+    if r is not None and abs(r) < SCRATCH_R:
+        st["scratches"] = st.get("scratches", 0) + 1
+        return                                  # closed at about breakeven: nobody was right or wrong
     for name, ok in votes.items():
         if ok is None:
             continue
@@ -553,6 +621,10 @@ def score(st, votes, won, was_trade):
         b["total"] += 1
         if ok == won:
             b["right"] += 1
+        if r is not None:
+            side = "yes" if ok else "no"
+            b[side + "_n"] = b.get(side + "_n", 0) + 1
+            b[side + "_r"] = round(b.get(side + "_r", 0.0) + r, 3)
     cr = st["council_record"]
     cr["total"] += 1
     right = (was_trade and won) or (not was_trade and not won)
@@ -818,6 +890,120 @@ def place_case_trade(api, st, pair, cid, plan, bid, ask, inf, nav, now, news, op
 
 # ───────────────────────────── Telegram ──────────────────────────────────────
 
+def set_doubt_job(st, job, manual=True):
+    st["doubt_job"] = job
+    st["doubt_manual"] = manual
+    st.pop("doubt_pending", None)
+    old = st.setdefault("scoreboard", {}).pop("Doubt", None)
+    if old:
+        st.setdefault("doubt_history", []).append({"t": time.time(), "job": (st.get("doubt_prev") or {}).get("text"), "board": old})
+    st["doubt_prev"] = job
+    feed_add(st, "event", "Doubt has a new job", who="Doubt",
+             text=("I'm sitting out votes until Inspector finds a question that predicts winners." if job["job"] == "off"
+                   else f"New question from Inspector: {job['text']}. Fresh scorecard."))
+
+
+def doubt_sync(st, tg):
+    """After an Inspector run: offer the winning question, or bench Doubt's vote if nothing held up."""
+    aud = inspector_files().get("doubt")
+    when = _FILES.get("when")
+    if not aud or not when or st.get("doubt_seen") == when:
+        return
+    st["doubt_seen"] = when
+    win = aud.get("winner")
+    cur = (st.get("doubt_job") or DOUBT_DEFAULT)
+    if win:
+        if win.get("job") == cur.get("job") and win.get("value") == cur.get("value"):
+            return
+        st["doubt_pending"] = win
+        if tg:
+            tg.say(f"🤔 Doubt's tryouts: \"{win['text']}\" held up on months Inspector never trained on "
+                   f"(YES beat NO by {win['test_edge']:+.2f}R).\n\nReply /approve doubt to give him the job, or /doubt for details.")
+    elif cur.get("job") == "trend" and not st.get("doubt_manual") and not (aud.get("current") or {}).get("passed"):
+        set_doubt_job(st, {"job": "off", "text": "sitting out until a question passes"}, manual=False)
+        if tg:
+            tg.say("🤔 Doubt's tryouts: none of his new questions held up on unseen months, and his old one (the 4-hour trend) "
+                   "doesn't predict anything. He sits out the votes until something passes, so trades now need 3 YES from the other 4.\n\n"
+                   "/approve doubt trend gives him his old job back. /doubt for details.")
+
+
+def doubt_report(st):
+    cur = st.get("doubt_job") or DOUBT_DEFAULT
+    b = st.get("scoreboard", {}).get("Doubt", {})
+    lines = [f"🤔 Doubt's job: {cur['text']}"]
+    e = edge_text(b)
+    lines.append(f"Since then: {b.get('total', 0)} graded calls" + (f", YES beat NO by {e}" if e else " (edge shows after 5 YES and 5 NO)"))
+    aud = inspector_files().get("doubt")
+    if not aud:
+        lines.append("\nInspector hasn't held tryouts yet. Run him from GitHub Actions.")
+    else:
+        lines.append(f"\nInspector's tryouts (trained {aud['train_span']}, checked on {aud['test_span']}):")
+        c0 = aud.get("current")
+        if c0:
+            lines.append(f"• Old question (4-hour trend): training {_fr(c0['train_edge'])}, unseen {_fr(c0['test_edge'])}")
+        for c in aud.get("candidates", []):
+            lines.append(f"• {'✅' if c['passed'] else '❌'} {c['text']}: training {_fr(c['train_edge'])}, unseen {_fr(c['test_edge'])}")
+        p = st.get("doubt_pending")
+        if p:
+            lines.append(f"\nWaiting on you: /approve doubt gives him \"{p['text']}\"")
+    lines.append("\n/approve doubt trend = old job · /approve doubt off = sit out")
+    return "\n".join(lines)
+
+
+def _fr(x):
+    return "n/a" if x is None else f"{x:+.2f}R"
+
+
+BOT_TITLE = 'Vault FX'
+BOT_COMMAND_GROUPS = [
+    ('📊 Check in', [
+        ('status', "Bankroll, open trades and today's results"),
+        ('help', 'This list of commands'),
+    ]),
+    ('🎛 Control', [
+        ('pause', 'Stop opening new trades (open ones keep their stops)'),
+        ('resume', 'Start trading again'),
+        ('closeall', 'Close every open trade and pause'),
+        ('testtrade', 'Place and close a tiny test trade'),
+    ]),
+    ('🏛 Council', [
+        ('live', 'Turn the live council debate on or off'),
+        ('happy', "Tell the council you're happy (cheers!)"),
+        ('unhappy', "Tell the council you're not happy"),
+    ]),
+    ('🕵️ Inspector', [
+        ('cases', "Inspector's strategies and proving-ground status"),
+        ('approve', 'Promote a case or apply a fix, e.g. /approve f1'),
+        ('revert', "Go back to the council's strategy"),
+        ('fixes', "Inspector's fixes and their status"),
+        ('unfix', 'Turn off a fix, e.g. /unfix f1'),
+        ('hindsight', "Inspector's notes on Telegram on or off"),
+        ('doubt', "Doubt's question and Inspector's tryouts"),
+    ]),
+]
+def help_text():
+    lines = [f"📟 {BOT_TITLE} commands", ""]
+    for group, cmds in BOT_COMMAND_GROUPS:
+        lines.append(group)
+        lines += [f"/{c} – {d}" for c, d in cmds]
+        lines.append("")
+    lines.append("Tip: tap the Menu button next to the message box to pick a command.")
+    return "\n".join(lines)
+
+
+def sync_menu(tg, st):
+    """Keep Telegram's Menu button in sync with the commands this bot understands."""
+    cmds = [{"command": c, "description": d[:60]} for _, group in BOT_COMMAND_GROUPS for c, d in group]
+    sig = json.dumps(cmds, sort_keys=True)
+    if st.get("menu_sig") == sig:
+        return
+    try:
+        tg.api("setMyCommands", commands=cmds)
+        st["menu_sig"] = sig
+    except Exception:
+        pass
+
+
 class Telegram:
     def __init__(self, token, st):
         self.token, self.st, self.out = token, st, []
@@ -871,6 +1057,13 @@ class Telegram:
         log.append(f"Telegram: sent {sent} message(s)")
 
 
+def role_of(n, st):
+    if n == "Doubt":
+        job = st.get("doubt_job") or DOUBT_DEFAULT
+        return "sitting out" if job["job"] == "off" else job["text"]
+    return ROLES[n]
+
+
 def money(x):
     return f"{'+' if x >= 0 else '−'}${abs(x):,.2f}"
 
@@ -922,9 +1115,23 @@ def run(log, full=True):
         st["day"] = {"date": today, "start_nav": nav, "halted": False}
     st["peak"] = max(st.get("peak", nav), nav)
 
+    if st.get("grading_v") != 2:
+        st["scoreboard_v1"] = st.get("scoreboard", {})       # old grades kept for reference
+        st["scoreboard"] = {}
+        st["grading_v"] = 2
+        if tg:
+            tg.say("📏 New grading for the council: trades that close at breakeven no longer count as losses, rejected setups get the "
+                   "same breakeven rule on paper, and each officer is judged on how much better his YES picks do than his NO picks. "
+                   "Scoreboard restarted from zero so the old, unfair grades don't drag anyone's vote weight.")
+    doubt_sync(st, tg)
     if tg:
+        sync_menu(tg, st)
         for full_cmd in tg.commands():
             cmd, _, arg = full_cmd.partition(" ")
+            cmd = cmd.split("@")[0].lower()
+            if cmd in ("/help", "/commands"):
+                tg.say(help_text())
+                continue
             if cmd == "/live":
                 on = {"on": True, "off": False}.get(arg.strip(), not st.get("live_tg"))
                 st["live_tg"] = on
@@ -980,6 +1187,24 @@ def run(log, full=True):
                                 + (f", day {d['days']:.0f} of {PROVING_DAYS}" if state == "proving" else ""))
                 cur = st.get("strategy")
                 tg.say("🗂 Inspector's cases\n" + "\n".join(rows) + f"\n\nTrading now: {cs.CASES[cur]['name'] if cur in cs.CASES else 'the council'}")
+            elif cmd == "/doubt":
+                tg.say(doubt_report(st))
+            elif cmd == "/approve" and arg.strip().lower().split(" ")[0] == "doubt":
+                which = arg.strip().lower().split()[1:]
+                if which and which[0] == "trend":
+                    set_doubt_job(st, dict(DOUBT_DEFAULT))
+                    tg.say("↩️ Doubt is back on his old question: does the 4-hour trend agree?")
+                elif which and which[0] == "off":
+                    set_doubt_job(st, {"job": "off", "text": "sitting out (you benched him)"})
+                    tg.say("🪑 Doubt sits out the votes. Trades need 3 YES from the other 4. /approve doubt trend brings him back.")
+                elif st.get("doubt_pending"):
+                    job = st["doubt_pending"]
+                    set_doubt_job(st, {k: job[k] for k in ("job", "value", "text") if k in job})
+                    st.setdefault("inspector_since", time.time())
+                    st.setdefault("inspector_fixes", []).append({"t": time.time(), "doubt": job["job"]})
+                    tg.say(f"✅ Doubt's new question: {job['text']}. His scorecard starts fresh. /approve doubt trend to undo.")
+                else:
+                    tg.say("Inspector doesn't have a new question for Doubt right now. /doubt shows the tryouts.")
             elif cmd == "/approve" and arg.strip().lower().startswith("f") and arg.strip().split(" ")[0][1:].isdigit():
                 fid, _, extra = arg.strip().lower().partition(" ")
                 f = next((x for x in (inspector_files().get("fixes") or []) if x["id"] == fid), None)
@@ -1111,8 +1336,8 @@ def run(log, full=True):
         st["closed"].append(meta)
         st["_changed"] = True
         rec = st["record"]; rec["wins" if won else "losses"] += 1; rec["pl"] = round(rec["pl"] + pl, 2)
-        score(st, meta.get("votes", {}), won, True)
         meta["r"] = round(pl / meta["risk"], 2) if meta.get("risk") else 0
+        score(st, meta.get("votes", {}), won, True, meta["r"] if meta.get("risk") else None)
         if won:
             add_party(st, "win", f"{NAMES[meta['pair']]} {'BUY' if meta['dir'] == 1 else 'SELL'} won",
                       f"{money(pl)} · {meta['r']:+.2f}R · {meta.get('setup', 'pullback')} theory worked")
@@ -1164,6 +1389,8 @@ def run(log, full=True):
         del eq[:-1500]                          # about two weeks at one point per 15 minutes
 
     # 3) council on each new 1-hour candle (full runs only)
+    global DOUBT_JOB
+    DOUBT_JOB = st.get("doubt_job") or dict(DOUBT_DEFAULT)
     open_pairs = {m["pair"] for m in st["trades"].values()}
     for pair in (pairs if full else []):
         try:
@@ -1222,17 +1449,26 @@ def run(log, full=True):
         for sh in [s for s in st["shadow"] if s["pair"] == pair]:
             later = [x for x in (m15 if sh.get("tf") in ("M15", "LB") else h1) if x["t"] > sh["bar"]]
             hit = None
+            k_ = TARGET_ATR / STOP_ATR
+            entry_ = sh.get("entry")
+            if entry_ is None:                  # older paper trades didn't save their entry
+                entry_ = sh["sl"] + (sh["tp"] - sh["sl"]) / (1 + k_)
+            rd_, be_ = abs(entry_ - sh["sl"]), False
             for x in later:
-                hit_sl = (x["l"] <= sh["sl"]) if sh["dir"] == 1 else (x["h"] >= sh["sl"])
+                stop_ = entry_ if be_ else sh["sl"]
+                hit_sl = (x["l"] <= stop_) if sh["dir"] == 1 else (x["h"] >= stop_)
                 hit_tp = (x["h"] >= sh["tp"]) if sh["dir"] == 1 else (x["l"] <= sh["tp"])
                 if hit_sl:
-                    hit = False; break          # stop first (or both in one candle) counts as a loss
+                    hit = "scratch" if be_ else False; break   # stop first (or both in one candle) counts as a loss
                 if hit_tp:
                     hit = True; break
+                if not be_ and ((x["h"] - entry_) if sh["dir"] == 1 else (entry_ - x["l"])) >= BREAKEVEN_AT_R * rd_:
+                    be_ = True                  # same rule as real trades: stop moves to entry at +1R
             age = (now - dt.datetime.fromisoformat(sh["bar"]).replace(tzinfo=dt.timezone.utc)).days
             if hit is not None:
-                score(st, sh["votes"], hit, False); st["shadow"].remove(sh)
-                note = record_result(st, pair, sh.get("setup", "pullback"), TARGET_ATR / STOP_ATR if hit else -1.0)
+                r_ = k_ if hit is True else 0.0 if hit == "scratch" else -1.0
+                score(st, sh["votes"], hit is True, False, r_); st["shadow"].remove(sh)
+                note = record_result(st, pair, sh.get("setup", "pullback"), r_)
                 if note and tg:
                     tg.say(note)
             elif age > SHADOW_DAYS:
@@ -1319,7 +1555,7 @@ def run(log, full=True):
                 today["rejected"] += 1
                 today["news"] += 1 if hit else 0
                 today["benched"] += 1 if bench is not None else 0
-                st["shadow"].append({"pair": pair, "dir": d, "bar": a["time"], "sl": sl, "tp": tp, "votes": plain_votes,
+                st["shadow"].append({"pair": pair, "dir": d, "bar": a["time"], "sl": sl, "tp": tp, "entry": entry, "votes": plain_votes,
                                      "setup": a["setup"], "tf": tf})
                 log.append(f"{pair}: council rejected {label} {yes}–{no}")
                 continue
@@ -1702,7 +1938,7 @@ def weekly_report(st, day, nav):
     starts = [d_["start_nav"] for d_ in days if d_.get("start_nav") is not None]
     week_change = nav - starts[0] if starts else None
     board = st.get("scoreboard", {})
-    ranked = sorted([(n, b["right"] / b["total"], b["total"]) for n, b in board.items() if b.get("total", 0) >= 5],
+    ranked = sorted([(n, voter_edge(b), b["total"]) for n, b in board.items() if voter_edge(b) is not None],
                     key=lambda x: -x[1])
     rec, cr = st.get("record", {}), st.get("council_record", {"right": 0, "total": 0})
     voters, bench = _learning_lines(st)
@@ -1720,9 +1956,9 @@ def weekly_report(st, day, nav):
               f"   Council all-time: {cr['right'] / cr['total']:.0%} ({cr['right']}/{cr['total']})" if cr["total"] else "   Council all-time: no scored calls yet",
               ""]
     if ranked:
-        lines.append(f"⭐ Sharpest voter: {ranked[0][0]} ({ranked[0][1]:.0%} of {ranked[0][2]})")
+        lines.append(f"⭐ Sharpest voter: {ranked[0][0]} (YES beat NO by {ranked[0][1]:+.2f}R over {ranked[0][2]} calls)")
         if len(ranked) > 1:
-            lines.append(f"🤔 Least reliable: {ranked[-1][0]} ({ranked[-1][1]:.0%} of {ranked[-1][2]})")
+            lines.append(f"🤔 Least useful: {ranked[-1][0]} ({ranked[-1][1]:+.2f}R over {ranked[-1][2]} calls)")
     lc = learning_card(st)
     lines += ["🧠 " + voters, "   " + bench, "   Is it learning? " + lc["verdict"]]
     if lc["took"] is not None and lc["skip"] is not None:
@@ -1864,7 +2100,8 @@ def chatter(st):
     for n in VOTERS:
         b = board.get(n, {})
         if b.get("total", 0) >= 5:
-            lines[n].append(f"I've called {b['right'] / b['total']:.0%} of my votes right.")
+            lines[n].append(f"My YES picks beat my NO picks by {edge_text(b)}." if edge_text(b)
+                            else f"I've called {b['right'] / b['total']:.0%} of my votes right.")
     L = st.get("learn", {})
     for combo in list(L.get("benched", {}))[:2]:
         pr, stp = combo.split(":", 1)
@@ -1906,6 +2143,8 @@ def council_room(state):
         cls = {True: "yes", False: "no", None: "abs"}[ok]
         b = board.get(name, {"right": 0, "total": 0})
         acc = f"{b['right'] / b['total']:.0%} right" if b["total"] else "no record yet"
+        if edge_text(b):
+            acc += f" · {edge_text(b)}"
         voters.append({"name": name, "vote": ok, "why": why, "acc": acc})
         seats.append(f"""<button class="seat" data-i="{i}" style="--i:{i}" aria-label="{name}: {sign}. {html.escape(why)}">
           <span class="sign {cls}">{sign}</span>
@@ -3192,8 +3431,9 @@ def build_html(st, log):
     board = st.get("scoreboard", {})
     weights = voter_weights(st)
     board_rows = "".join(
-        f"""<tr><td class="mkt">{n}<small>{ROLES[n]}</small></td>
+        f"""<tr><td class="mkt">{n}<small>{role_of(n, st)}</small></td>
         <td class="n" data-l="Called it">{(f"{board[n]['right'] / board[n]['total']:.0%}") if board.get(n, {}).get('total') else '—'}</td>
+        <td class="n" data-l="YES vs NO">{edge_text(board.get(n)) or '—'}</td>
         <td class="n" data-l="Vote weight">{weights[n]:g}×</td>
         <td class="n" data-l="Right / scored">{board.get(n, {}).get('right', 0)} / {board.get(n, {}).get('total', 0)}</td></tr>"""
         for n in VOTERS)
@@ -3201,6 +3441,8 @@ def build_html(st, log):
     learn_line = ("Benched (losing lately, still scored on paper): " + ", ".join(
         f"{NAMES[c.split(':')[0]]} {c.split(':')[1]} ({v:+.2f}R)" for c, v in benched.items())) if benched else \
         f"Nothing benched. Vote weights start changing after {LEARN_MIN_CALLS} scored calls."
+    learn_line += (" YES vs NO = how much better setups did when he voted YES than when he voted NO; that sets his vote weight. "
+                   f"Breakeven closes don't count ({st.get('scratches', 0)} so far).")
     soon = [e for e in st.get("news", {}).get("events", [])
             if e["cur"] in set().union(*(pair_currencies(p) for p in PAIRS)) and time.time() - NEWS_AFTER_MIN * 60 <= e["t"] <= time.time() + 36 * 3600][:5]
     news_rows = "".join(f"<li>{html.escape(news_label(e))}</li>" for e in soon) or "<li>Nothing high-impact in the next 36 hours.</li>"
@@ -3423,7 +3665,7 @@ details {{ color:var(--muted) }} .fine {{ color:var(--muted); font-size:12px; ma
 <section><h2>Big news ahead</h2><ul class="news">{news_rows}</ul><p class="fine">No new trades from {NEWS_BEFORE_MIN} min before to {NEWS_AFTER_MIN} min after these.</p></section>
 {learning_html(st)}
 {inspector_link()}
-<section><h2>Who called it?</h2><p class="fine">{html.escape(learn_line)}</p><div class="tbl"><table><tr><th>Voter</th><th>Called it</th><th>Vote weight</th><th>Right / scored</th></tr>{board_rows}</table></div></section>
+<section><h2>Who called it?</h2><p class="fine">{html.escape(learn_line)}</p><div class="tbl"><table><tr><th>Voter</th><th>Called it</th><th>YES vs NO</th><th>Vote weight</th><th>Right / scored</th></tr>{board_rows}</table></div></section>
 <section><h2>Recent closed trades</h2><div class="tbl"><table><tr><th>Pair</th><th>Side</th><th>Units</th><th>Result</th></tr>{closed_rows}</table></div></section>
 <details><summary>Scan log</summary><ul>{''.join(f'<li>{html.escape(l)}</li>' for l in log)}</ul></details>
 <p class="fine">Strategy: the EMA20/EMA50 trend on 1-hour or 15-minute candles sets the direction (15-minute setups must also agree with the 1-hour and 4-hour trends); a fresh crossover or a pullback to the EMA20 creates a setup.

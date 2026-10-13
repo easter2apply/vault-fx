@@ -224,7 +224,7 @@ def replay(pair, h1, h4, m15, test_from, pip_loc, log, fifty=None, d1=None, case
                     continue                             # still open at the end of the data
                 case_busy[cid] = m15[k - 1]["ts"] + 900
                 case_trades.append({"case": cid, "pair": pair, "ts": close_ts, "r": res[0], "cost_r": round(pos["cost_r"], 4),
-                                    "hour": c["ts"] // 3600 % 24, "wd": now.weekday()})
+                                    "hour": c["ts"] // 3600 % 24, "wd": dt.datetime.fromtimestamp(close_ts, UTC).weekday()})
         if close_ts < test_from or i1 < 210 or i4 < 210 or j < 210:
             continue
         now = dt.datetime.fromtimestamp(close_ts, UTC)
@@ -278,6 +278,7 @@ def replay(pair, h1, h4, m15, test_from, pip_loc, log, fifty=None, d1=None, case
             ok = vf.approved(votes)
             r_plain, _, how_plain = play(m15, j, d, entry, sl, tp, breakeven=False)
             rec = {"pair": pair, "t": c["t"], "tf": tf, "setup": s["setup"], "dir": d, "votes": {n: o for n, (o, _) in votes.items()},
+                   "dz": vf.doubt_features(s, d),
                    "approved": ok, "r": r_plain, "how": how_plain, "free": free, "ts": close_ts,
                    "cost_r": round(abs(c["ac"] - c["bc"]) / abs(entry - sl), 4), "hour": now.hour, "wd": now.weekday()}
             # lab data: how the council would vote with the pair free, plus every exit plan's result
@@ -371,6 +372,130 @@ def grade(setups, months):
     out["monthly"] = {k: stats(v) for k, v in sorted(mon.items())}
     out["advice"] = advice(out)
     return out
+
+
+# ───────────────────────────── Doubt's tryouts ───────────────────────────────
+
+STRETCH_TRIES = [0.75, 1.0, 1.5, 2.0]
+WALL_TRIES = [0.5, 1.0, 1.5]
+
+
+def _doubt_vote(job, s):
+    v = vf.doubt_job_vote(job, s.get("dz"), s["hour"])
+    if v == "off":
+        return None
+    return s["votes"].get("Doubt") if v is None else v[0]
+
+
+def _doubt_edge(job, rows):
+    yes = [s["r"] for s in rows if _doubt_vote(job, s) is True]
+    no = [s["r"] for s in rows if _doubt_vote(job, s) is False]
+    if len(yes) < MIN_N or len(no) < MIN_N:
+        return None, len(yes), len(no)
+    return sum(yes) / len(yes) - sum(no) / len(no), len(yes), len(no)
+
+
+def _council_with(job, rows):
+    out = []
+    for s in rows:
+        v = dict(s["votes"])
+        v["Doubt"] = _doubt_vote(job, s)
+        if approved_without(v, None):
+            out.append(s["r"])
+    return stats(out)
+
+
+def doubt_job_text(job):
+    if job["job"] == "stretch":
+        return f"NO when price is more than {job['value']:g} ATR from its average (the move may be used up)"
+    if job["job"] == "wall":
+        return f"NO when a recent high/low sits within {job['value']:g} ATR of the entry (wall ahead)"
+    if job["job"] == "hours":
+        return "NO during " + ", ".join(f"{ET_LABEL(h)}" for h in job["value"]) + " ET (weakest hours)"
+    return job.get("text", job["job"])
+
+
+def doubt_tryouts(setups, log):
+    """Audition new questions for Doubt: pick each one's setting on the training months, then check it on unseen months."""
+    rows = sorted([s for s in setups if s["free"]], key=lambda s: s["ts"])
+    if len(rows) < 400:
+        return None
+    t0, t1 = rows[0]["ts"], rows[-1]["ts"]
+    split = t0 + (t1 - t0) * 2 / 3
+    train = [s for s in rows if s["ts"] < split]
+    test = [s for s in rows if s["ts"] >= split]
+    fmt = lambda x: dt.datetime.fromtimestamp(x, UTC).strftime("%b %d")
+    base_train, base_test = _council_with(vf.DOUBT_DEFAULT, train), _council_with(vf.DOUBT_DEFAULT, test)
+    cur_tr, cur_te = _doubt_edge(vf.DOUBT_DEFAULT, train)[0], _doubt_edge(vf.DOUBT_DEFAULT, test)[0]
+    off_test = _council_with({"job": "off"}, test)
+
+    families = {"stretch": [{"job": "stretch", "value": x} for x in STRETCH_TRIES],
+                "wall": [{"job": "wall", "value": x} for x in WALL_TRIES]}
+    # dead hours: hours whose training-month setups did clearly worse than average
+    allr = [s["r"] for s in train]
+    avg_all = sum(allr) / len(allr)
+    by_h = {}
+    for s in train:
+        by_h.setdefault(s["hour"], []).append(s["r"])
+    dead = sorted(h for h, rs in by_h.items() if len(rs) >= MIN_N and sum(rs) / len(rs) <= avg_all - EDGE)
+    if dead and len(dead) < 20:
+        families["hours"] = [{"job": "hours", "value": dead}]
+
+    cands = []
+    for fam, jobs in families.items():
+        scored = [(j, _doubt_edge(j, train)[0]) for j in jobs]
+        scored = [(j, e) for j, e in scored if e is not None]
+        if not scored:
+            continue
+        job, tr = max(scored, key=lambda x: x[1])            # setting chosen on training months only
+        te, ny, nn = _doubt_edge(job, test)
+        council_te = _council_with(job, test)
+        why = []
+        if tr < EDGE:
+            why.append("didn't help on the training months")
+        if te is None:
+            why.append("too few unseen setups to judge")
+        elif te < EDGE:
+            why.append("didn't hold up on the unseen months")
+        if council_te["avg"] is not None and base_test["avg"] is not None and council_te["avg"] < base_test["avg"]:
+            why.append("made the council's trades worse")
+        job["text"] = doubt_job_text(job)
+        cands.append({"job": job["job"], "value": job["value"], "text": job["text"], "train_edge": round(tr, 3),
+                      "test_edge": round(te, 3) if te is not None else None, "test_yes": ny, "test_no": nn,
+                      "council_test": council_te, "passed": not why, "why": "; ".join(why) or "held up"})
+    passed = sorted([c for c in cands if c["passed"]], key=lambda c: -c["train_edge"])
+    w = passed[0] if passed else None
+    winner = ({"job": w["job"], "value": w["value"], "text": w["text"], "test_edge": w["test_edge"]} if w else None)
+    log.append(f"Doubt's tryouts: {len(passed)} of {len(cands)} questions held up" + (f"; best: {w['text']}" if w else ""))
+    return {"train_span": f"{fmt(t0)} – {fmt(split)}", "test_span": f"{fmt(split)} – {fmt(t1)}",
+            "current": {"train_edge": cur_tr, "test_edge": cur_te, "council_test": base_test, "council_train": base_train,
+                        "passed": cur_tr is not None and cur_te is not None and cur_tr >= EDGE and cur_te >= EDGE},
+            "off_test": off_test, "candidates": cands, "winner": winner}
+
+
+def doubt_html(D):
+    if not D:
+        return ""
+    c0 = D["current"]
+    rows = (f"<tr class='base'><td>Old question: does the 4-hour trend agree?</td><td class='n'>{fr(c0['train_edge'])}</td>"
+            f"<td class='n'>{fr(c0['test_edge'])}</td><td class='n'>{fr(c0['council_test']['avg'])}<small>{c0['council_test']['n']} trades</small></td>"
+            f"<td>current</td></tr>")
+    rows += (f"<tr><td>Sit out (no vote)</td><td class='n'>—</td><td class='n'>—</td>"
+             f"<td class='n'>{fr(D['off_test']['avg'])}<small>{D['off_test']['n']} trades</small></td><td>fallback</td></tr>")
+    for c in D["candidates"]:
+        ct = c["council_test"]
+        rows += (f"<tr><td>{html.escape(c['text'])}</td><td class='n'>{fr(c['train_edge'])}</td><td class='n'>{fr(c['test_edge'])}</td>"
+                 f"<td class='n'>{fr(ct['avg'])}<small>{ct['n']} trades</small></td>"
+                 f"<td><span class='pill {'good' if c['passed'] else 'bad'}'>{'PASSED' if c['passed'] else 'FAILED'}</span>"
+                 f"<small>{html.escape(c['why'])}</small></td></tr>")
+    w = D.get("winner")
+    head = (f"<p class='verdict good'>New job for Doubt: {html.escape(w['text'])}. Reply /approve doubt on Telegram.</p>" if w else
+            "<p class='verdict good'>No new question beat the old one, and the 4-hour trend still holds up, so Doubt keeps it.</p>" if c0.get("passed") else
+            "<p class='verdict wait'>No new question held up. Doubt sits out the votes until one does (/approve doubt trend undoes that).</p>")
+    return f"""<section><h2>Doubt's tryouts</h2>{head}
+<p class="fine">Edge = how much better setups did when Doubt would say YES than NO. Each question's setting was picked on {D['train_span']}
+and then checked on {D['test_span']}, which it never saw. To pass, it needs +{EDGE:g}R on both and can't make the council's trades worse.</p>
+<div class="tbl"><table><tr><th>Question</th><th>Training edge</th><th>Unseen edge</th><th>Council trades (unseen)</th><th>Result</th></tr>{rows}</table></div></section>"""
 
 
 def advice(g):
@@ -937,6 +1062,8 @@ table.lab td{{font-size:13px}} td.rk{{color:var(--muted);width:28px}} tr.base td
 
 {board_html(g.get('board'))}
 
+{doubt_html(g.get('doubt'))}
+
 {boosters_html(g.get('boosters'))}
 
 {lab_html(g.get('lab'))}
@@ -1096,6 +1223,14 @@ def telegram_summary(g):
         lines += ["", "✅ Fixes ready to apply:"]
         lines += [f"• {f['id']}: {f['case_name']}, {f['text']} (fresh data {f['fresh_before']:+.2f}R → {f['fresh_after']:+.2f}R). "
                   f"Reply /approve {f['id']}" for f in ready]
+    D = g.get("doubt")
+    if D:
+        lines += ["", "🤔 Doubt's tryouts (new questions for him, checked on unseen months):"]
+        for c in D["candidates"]:
+            lines.append(f"{'✅' if c['passed'] else '❌'} {c['text']}: training {fr(c['train_edge'])}, unseen {fr(c['test_edge'])}")
+        lines.append(f"Winner: {D['winner']['text']}. Reply /approve doubt" if D.get("winner") else
+                     "None held up, but his old question (4-hour trend) still does, so he keeps it." if D["current"].get("passed") else
+                     "None held up, so Doubt sits out the votes for now. /approve doubt trend gives him his old job back.")
     F = g.get("fifty")
     if F:
         lines += ["", "📄 50 Pips a Day: " + fifty_verdict(F)]
@@ -1161,6 +1296,7 @@ def main():
     log.append(f"Fixes: {sum(1 for f in g['fixes'] if f['status'] == 'proving')} proving, "
                f"{sum(1 for f in g['fixes'] if f['status'] == 'ready')} ready")
     g["traded"] = traded
+    g["doubt"] = doubt_tryouts(setups, log)
     g["boosters"] = boosters(setups)
     log.append(f"Cases: {len(case_trades)} trades across {len(cs.CASES)} new strategies")
     log.append(f"Finished in {(time.time() - started) / 60:.1f} min")
