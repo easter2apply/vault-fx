@@ -46,6 +46,48 @@ def _ago(ts):
     return "just now" if s < 90 else f"{s / 60:.0f} min ago" if s < 5400 else f"{s / 3600:.0f}h ago" if s < 172800 else f"{s / 86400:.0f}d ago"
 
 
+def fix_html(c, on_ids):
+    rows = []
+    for f in c.get("fixes") or []:
+        if f.get("id") in on_ids:
+            icon, word = "🟢", "ON in your bot"
+        else:
+            icon, word = FIX_CHIP.get(f.get("status"), ("•", f.get("status", "")))
+        if f.get("status") == "ready" and f.get("id") not in on_ids:
+            word = f"ready: send /approve {f['id']}"
+        detail = ""
+        if f.get("status") == "proving":
+            detail = f" · day {f.get('days', 0):.0f} of 28"
+        elif f.get("test_before") is not None and f.get("test_after") is not None:
+            detail = f" · unseen months {f['test_before']:+.2f}R → {f['test_after']:+.2f}R"
+        rows.append(f'<li>{icon} <b>{html.escape(f.get("id", "") + (": " if f.get("id") else "") + f["text"])}</b> · {html.escape(word)}{html.escape(detail)}</li>')
+    return f'<p class="why"><b>🛠 Fixes</b></p><ul class="help">{"".join(rows)}</ul>' if rows else ""
+
+
+def fix_line(c, on_ids):
+    """What Inspector says about a suspect's fix, if it has one."""
+    fx = c.get("fixes") or []
+    for f in fx:
+        if f.get("id") in on_ids:
+            return f"Fix {f['id']} is ON: {f['text']}."
+    for f in fx:
+        if f.get("status") == "ready":
+            return (f"Fix ready: {f['text']}. Held up on unseen months and 4 weeks of fresh data "
+                    f"({(f.get('fresh_before') or 0):+.2f}R → {(f.get('fresh_after') or 0):+.2f}R). Send /approve {f['id']}.")
+    for f in fx:
+        if f.get("status") == "proving":
+            return (f"Fix confirmed on unseen months: {f['text']} ({(f.get('test_before') or 0):+.2f}R → {(f.get('test_after') or 0):+.2f}R). "
+                    f"Proving it on fresh data: day {f.get('days', 0):.0f} of 28.")
+    for f in fx:
+        if f.get("status") in ("failed-fresh", "failed-test"):
+            return f"Fix failed: '{f['text']}' looked good in hindsight but didn't hold up on new data. Back to the drawing board."
+    return None
+
+
+FIX_CHIP = {"proving": ("🧪", "proving on fresh data"), "ready": ("✅", "ready: /approve"), "failed-fresh": ("⛔", "failed on fresh data"),
+            "failed-test": ("⛔", "failed on unseen months")}
+
+
 def accuracy_texts(acc, tz):
     """(bubble text for Inspector, HTML for the pinned bubble) about accuracy since his first correction."""
     def pct(x):
@@ -75,6 +117,7 @@ def build_office(st, ctx):
     files, when, CASES = ctx["files"], ctx["when"], ctx["cases"]
     status, names, tz = ctx["status"], ctx["names"], ctx["tz"]
     board = (files.get("board") or {}).get("cases", [])
+    on_ids = {f["id"] for f in st.get("fixes_active", [])}
     strat = st.get("strategy")
     trading = CASES[strat]["name"] if strat in CASES else "the council"
     insp_when = dt.datetime.fromtimestamp(when, tz).strftime("%a %b %-d, %-I:%M %p ET") if when else None
@@ -100,7 +143,8 @@ def build_office(st, ctx):
           <h3>{html.escape(c['name'])}</h3><p class="what">{html.escape(c['what'])}</p>
           <p class="why">{html.escape(c['why'])}</p>
           <p class="nums">{a.get('n', 0):,} trades · {_pc(a.get('win'))} wins · <b class="{'pos' if (a.get('avg') or 0) > 0 else 'neg'}">{_r(a.get('avg'))}</b> a trade</p>
-          {('<p class="why"><b>🔧 What would help</b></p><ul class="help">' + "".join(f"<li>{html.escape(t)}</li>" for t in c.get("improve", [])) + "</ul>") if c.get("improve") else ""}{extra}</article>""")
+          {('<p class="why"><b>🔧 What would help</b></p><ul class="help">' + "".join(f"<li>{html.escape(t)}</li>" for t in c.get("improve", [])) + "</ul>") if c.get("improve") else ""}
+          {fix_html(c, on_ids)}{extra}</article>""")
     board_html = ("".join(cards) if cards else
                   '<p class="empty">No case files yet. Run Inspector once: GitHub → Actions → Inspector → Run workflow.</p>')
 
@@ -145,9 +189,12 @@ def build_office(st, ctx):
     for i, c in enumerate(picks):
         a = c.get("all") or {}
         tip = next((t for t in c.get("improve", []) if not t.startswith("These ideas")), None)
+        fixline = fix_line(c, on_ids)
+        if fixline:
+            tip = fixline
         short = c["name"].replace(" (council trades)", "").replace(" (as written)", "").replace("Your bot today", "Your bot")
         suspects.append({"num": i + 1, "name": short, "verdict": c["verdict"], "avg": a.get("avg"), "n": a.get("n", 0),
-                         "kind": c["kind"], "tip": tip})
+                         "kind": c["kind"], "tip": tip, "fixed": any(fx.get("id") in on_ids for fx in c.get("fixes", []))})
     stamp = None
     if board:
         promo = [c for c in board if c["kind"] == "new" and c["verdict"] == "CLEARED"]
@@ -325,7 +372,7 @@ OFFICE_JS = r"""
     return canvasTex(256, 168, function (x, w, h) {
       x.fillStyle = '#111317'; x.fillRect(0, 0, w, h); x.fillStyle = VCSS[s.verdict] || '#888'; x.fillRect(0, 0, w, 14);
       x.fillStyle = '#f2f2f2'; x.font = 'bold 40px ui-monospace, Menlo, monospace'; x.textAlign = 'center'; x.textBaseline = 'middle';
-      x.fillText('#' + s.num, w / 2, 52);
+      x.fillText('#' + s.num + (s.fixed ? ' +FIX' : ''), w / 2, 52);
       x.font = 'bold 44px ui-monospace, Menlo, monospace'; x.fillStyle = s.avg == null ? '#bbb' : s.avg > 0 ? '#53f0a6' : '#ff6b7c';
       x.fillText(s.avg == null ? '—' : (s.avg > 0 ? '+' : '−') + Math.abs(s.avg).toFixed(2) + 'R', w / 2, 116);
     });

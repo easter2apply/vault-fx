@@ -650,6 +650,10 @@ def proving_ground(st, pair, m15, h1, d1, bid, ask, now, tg, log):
         return {}
     seen[pair] = last["t"]
     plans = cs.signals(pair, m15, len(m15) - 1, h1, len(h1), d1, len(d1))
+    for cid in list(plans):
+        fx = fix_blocks(st, "case:" + cid, (last["ts"] // 3600) % 24, dt.datetime.fromtimestamp(last["ts"], dt.timezone.utc).weekday(), pair)
+        if fx:
+            plans.pop(cid)
     for cid, plan in plans.items():
         P = paper[cid]
         if pair in P["open"]:
@@ -694,6 +698,25 @@ def daily_candles(api, st, pair, now):
     rows = api.candles(pair, "D", 30)
     cache[pair] = {"day": day, "c": [{k: c[k] for k in ("t", "o", "h", "l", "c")} for c in rows]}
     return [dict(c) for c in cache[pair]["c"]]
+
+
+def active_fixes(st):
+    return st.get("fixes_active", [])
+
+
+def fix_blocks(st, case_id, hour_utc, weekday, pair):
+    """The approved fix that rules this setup out, or None."""
+    for f in active_fixes(st):
+        applies_to = (case_id, "bot") if case_id.startswith("setup:") else (case_id,)   # a "bot" fix covers every council setup
+        if f["case_id"] not in applies_to:
+            continue
+        if f["type"] == "hours" and f["value"][0] <= hour_utc < f["value"][1]:
+            return f
+        if f["type"] == "day" and weekday == f["value"]:
+            return f
+        if f["type"] == "pair" and pair == f["value"]:
+            return f
+    return None
 
 
 def accuracy_change(st):
@@ -957,6 +980,37 @@ def run(log, full=True):
                                 + (f", day {d['days']:.0f} of {PROVING_DAYS}" if state == "proving" else ""))
                 cur = st.get("strategy")
                 tg.say("🗂 Inspector's cases\n" + "\n".join(rows) + f"\n\nTrading now: {cs.CASES[cur]['name'] if cur in cs.CASES else 'the council'}")
+            elif cmd == "/approve" and arg.strip().lower().startswith("f") and arg.strip().split(" ")[0][1:].isdigit():
+                fid, _, extra = arg.strip().lower().partition(" ")
+                f = next((x for x in (inspector_files().get("fixes") or []) if x["id"] == fid), None)
+                if not f:
+                    tg.say(f"I don't have a fix called {fid}. Send /fixes to see them.")
+                elif f["status"] != "ready" and extra.strip() != "anyway":
+                    why = (f"it's still proving itself on fresh data (day {f.get('days', 0):.0f} of 28)" if f["status"] == "proving" else
+                           "it didn't hold up on fresh data, so I don't recommend it")
+                    tg.say(f"⚠️ Fix {fid} ({f['case_name']}: {f['text']}) isn't ready: {why}. Send /approve {fid} anyway to apply it now.")
+                elif any(x["id"] == fid for x in active_fixes(st)):
+                    tg.say(f"Fix {fid} is already on.")
+                else:
+                    st.setdefault("fixes_active", []).append({k: f[k] for k in ("id", "case_id", "case_name", "type", "value", "text")})
+                    st.setdefault("inspector_since", time.time())
+                    st.setdefault("inspector_fixes", []).append({"t": time.time(), "fix": fid})
+                    hindsight(st, f"You approved fix {fid}: {f['case_name']}, {f['text']}. It's live now.", None, "verdict")
+                    feed_add(st, "event", "Inspector's fix applied", who="Chair", text=f"{f['case_name']}: {f['text']}.")
+                    tg.say(f"🔧 Fix {fid} is on: {f['case_name']}, {f['text']}. The accuracy tracker on Inspector's tab counts from now. "
+                           f"/unfix {fid} turns it off.")
+            elif cmd == "/fixes":
+                fx = inspector_files().get("fixes") or []
+                on = {x["id"] for x in active_fixes(st)}
+                word = {"proving": "proving", "ready": "READY, /approve " , "failed-fresh": "failed on fresh data", "orphaned": "retired"}
+                rows = [f"• {f['id']}: {f['case_name']}, {f['text']} · {'ON' if f['id'] in on else word.get(f['status'], f['status']) + (f['id'] if f['status'] == 'ready' else '')}"
+                        + (f" (day {f.get('days', 0):.0f}/28)" if f["status"] == "proving" else "") for f in fx]
+                tg.say("🔧 Inspector's fixes\n" + ("\n".join(rows) if rows else "None yet. They appear after Inspector finds one that holds up on unseen months."))
+            elif cmd == "/unfix":
+                fid = arg.strip().lower()
+                before = len(active_fixes(st))
+                st["fixes_active"] = [x for x in active_fixes(st) if x["id"] != fid]
+                tg.say(f"Fix {fid} is off." if len(st["fixes_active"]) < before else f"Fix {fid} wasn't on.")
             elif cmd == "/approve":
                 cid, _, extra = arg.strip().partition(" ")
                 if cid not in cs.CASES:
@@ -988,7 +1042,7 @@ def run(log, full=True):
                    "/pause – stop opening new trades\n/resume – start again\n/closeall – close every open trade\n"
                    "/live – turn the live council debate on or off\n/testtrade – place and close a tiny practice trade to prove orders work\n"
                    "/cases – Inspector's strategies and their proving-ground status\n/approve <case> – promote one\n/revert – back to the council\n"
-                   "/hindsight – Inspector's notes on or off")
+                   "/hindsight – Inspector's notes on or off\n/fixes – Inspector's strategy fixes\n/approve f1 – apply a fix · /unfix f1 – remove it")
             st["welcomed"] = True
 
     if tg and not st.get("bot_username"):
@@ -1193,6 +1247,11 @@ def run(log, full=True):
             st["last_bar"][bar_key] = a["time"]
             if not a["setup"] or not a["atr"]:
                 log.append(f"{pair}: no {'1-hour' if tf == 'H1' else '15-min'} setup on the {a['time'][11:16]} UTC candle")
+                continue
+            fx = fix_blocks(st, "setup:" + a["setup"], now.hour, now.weekday(), pair)
+            if fx:
+                log.append(f"{pair}: {a['setup']} skipped by Inspector's fix {fx['id']} ({fx['text']})")
+                hindsight(st, f"Fix {fx['id']} kept the bot out of a {NAMES[pair]} {a['setup']} setup ({fx['text']}).", tg, "note")
                 continue
             st["_changed"] = True
 

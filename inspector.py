@@ -673,8 +673,11 @@ def case_board(setups, fifty, case_trades, labres, months, traded=None):
     ll = f"last {months / 3:.0f} months"
     board = []
 
+    itemsets = {}
+
     def add(cid, name, kind, what, items):
         items = sorted(items, key=lambda x: x[1])
+        itemsets[cid] = items
         v = verdict_for([x[0] for x in items], [x[1] for x in items], [x[2] for x in items], split_ts, lf, ll)
         _, _, _, need, cost = explain([x[0] for x in items], [x[2] for x in items])
         v["improve"] = improvements(items, v["verdict"], v["all"], need, cost)
@@ -709,10 +712,114 @@ def case_board(setups, fifty, case_trades, labres, months, traded=None):
                                   if not labres["passed"] else "Held up on unseen months. Worth adding as its own case for the proving ground."]})
     order = {"CLEARED": 0, "UNDER INVESTIGATION": 1, "GUILTY": 2}
     board.sort(key=lambda b: (order[b["verdict"]], -((b["all"] or {}).get("avg") or -9)))
-    return {"cases": board, "split": split_ts, "first_label": lf, "last_label": ll}
+    return {"cases": board, "split": split_ts, "first_label": lf, "last_label": ll, "_items": itemsets}
 
 
 ET_LABEL = lambda h: dt.datetime(2026, 1, 1, h, tzinfo=UTC).astimezone(vf.LOCAL_TZ).strftime("%-I %p")
+
+# ───────────────────────────── the fix pipeline ──────────────────────────────
+# 1) find a fix using the training months only  2) confirm it on the unseen months
+# 3) freeze it and re-check it every week on brand-new data for 28 days  4) text you; /approve puts it in the bot
+FIX_DAYS = 28
+DAYS = ["Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays", "Sundays"]
+
+
+def fix_matches(f, x):
+    """x = (r, ts, cost, hour_utc, weekday, pair)."""
+    if f["type"] == "hours":
+        return f["value"][0] <= x[3] < f["value"][1]
+    if f["type"] == "day":
+        return x[4] == f["value"]
+    return x[5] == f["value"]
+
+
+def fix_text(f):
+    if f["type"] == "hours":
+        return f"skip {ET_LABEL(f['value'][0])}–{ET_LABEL(f['value'][1] % 24)} ET"
+    if f["type"] == "day":
+        return f"skip {DAYS[f['value']]}"
+    return f"skip {vf.NAMES.get(f['value'], f['value'])}"
+
+
+def _avg(xs):
+    return sum(xs) / len(xs) if xs else None
+
+
+def discover_fixes(items, split_ts):
+    """Candidate fixes picked on the training months, then graded on the unseen months."""
+    train = [x for x in items if x[1] < split_ts]
+    test = [x for x in items if x[1] >= split_ts]
+    if len(train) < 40:
+        return []
+    base = _avg([x[0] for x in train])
+    floor_n = max(10, int(len(train) * 0.06))
+    found = []
+    for ftype, keyf in (("hours", lambda x: (x[3] // 3 * 3, x[3] // 3 * 3 + 3)), ("day", lambda x: x[4]), ("pair", lambda x: x[5])):
+        groups = {}
+        for x in train:
+            groups.setdefault(keyf(x), []).append(x[0])
+        cands = [(k, v) for k, v in groups.items() if len(v) >= floor_n and len(v) < len(train)]
+        if not cands:
+            continue
+        k, v = min(cands, key=lambda kv: _avg(kv[1]))
+        f = {"type": ftype, "value": list(k) if isinstance(k, tuple) else k}
+        kept_tr = [x[0] for x in train if not fix_matches(f, x)]
+        g_avg = _avg(v)
+        if not kept_tr or _avg(kept_tr) - base < 0.03 or not (g_avg < 0 or g_avg < base - 0.3):
+            continue
+        kept_te = [x[0] for x in test if not fix_matches(f, x)]
+        tb, ta = _avg([x[0] for x in test]), _avg(kept_te)
+        confirmed = len(kept_te) >= 20 and tb is not None and ta is not None and ta >= tb + 0.03
+        found.append(dict(f, text=fix_text(f), train_before=round(base, 3), train_after=round(_avg(kept_tr), 3),
+                          test_before=None if tb is None else round(tb, 3), test_after=None if ta is None else round(ta, 3),
+                          test_n=len(kept_te), confirmed=confirmed))
+    return found
+
+
+def fix_pipeline(board, prev_fixes, now_ts):
+    """Discover, confirm, register and forward-check fixes. Returns the registry (list)."""
+    items = board.pop("_items", {})
+    split = board.get("split") or now_ts
+    reg = {f["key"]: f for f in (prev_fixes or []) if "key" in f}
+    next_id = max([int(f["id"][1:]) for f in reg.values() if str(f.get("id", "")).startswith("f")] + [0]) + 1
+    names = {c["id"]: c["name"] for c in board.get("cases", [])}
+    for c in board.get("cases", []):
+        c["fixes"] = []
+        if c["id"] == "lab" or c["id"] not in items:
+            continue
+        for f in discover_fixes(items[c["id"]], split):
+            key = f"{c['id']}|{f['type']}|{json.dumps(f['value'])}"
+            if f["confirmed"] and key not in reg:
+                reg[key] = dict(f, key=key, id=f"f{next_id}", case_id=c["id"], case_name=c["name"], discovered_at=now_ts)
+                next_id += 1
+            elif not f["confirmed"]:
+                c["fixes"].append(dict(f, status="failed-test",
+                                       note=f"Tried '{f['text']}': it helped on the training months "
+                                            f"({f['train_before']:+.2f}R → {f['train_after']:+.2f}R) but not on the unseen months, so it's dropped."))
+    for key, f in reg.items():
+        its = items.get(f["case_id"])
+        if its is None:
+            f["status"] = "orphaned"
+            continue
+        fresh = [x for x in its if x[1] >= f["discovered_at"]]
+        kept = [x[0] for x in fresh if not fix_matches(f, x)]
+        f["days"] = round((now_ts - f["discovered_at"]) / 86400, 1)
+        f["fresh_n"], f["fresh_kept"] = len(fresh), len(kept)
+        f["fresh_before"], f["fresh_after"] = _avg([x[0] for x in fresh]), _avg(kept)
+        if f.get("status") == "approved":
+            pass
+        elif f["days"] < FIX_DAYS or len(kept) < 10:
+            f["status"] = "proving"
+        elif f["fresh_after"] is not None and f["fresh_before"] is not None and f["fresh_after"] >= f["fresh_before"] + 0.03:
+            f["status"] = "ready"
+        else:
+            f["status"] = "failed-fresh"
+        f["case_name"] = names.get(f["case_id"], f.get("case_name", f["case_id"]))
+        for c in board.get("cases", []):
+            if c["id"] == f["case_id"]:
+                c["fixes"].append({k: f[k] for k in ("id", "text", "status", "days", "test_before", "test_after", "fresh_before",
+                                                     "fresh_after", "fresh_kept", "train_before", "train_after") if k in f})
+    return sorted(reg.values(), key=lambda f: f["id"])
 
 
 def boosters(setups):
@@ -878,7 +985,8 @@ def board_html(B):
           <p class="fine">{html.escape(c['what'])}</p>
           <p>{html.escape(c['why'])}</p>
           <p class="fine">{a.get('n', 0)} trades · {pc(a.get('win'))} wins · {fr(a.get('avg'))} a trade</p>
-          {('<p><b>What would help:</b></p><ul class="fine">' + ''.join(f'<li>{html.escape(t)}</li>' for t in c.get('improve', [])) + '</ul>') if c.get('improve') else ''}</article>"""
+          {('<p><b>What would help:</b></p><ul class="fine">' + ''.join(f'<li>{html.escape(t)}</li>' for t in c.get('improve', [])) + '</ul>') if c.get('improve') else ''}
+          {''.join(f'<p class="fine">🔧 {html.escape(fx.get("note") or (fx["id"] + ": " + fx["text"] + " · " + fx["status"]))}</p>' for fx in c.get('fixes', []))}</article>"""
     return f"""<section><h2>🗂 Case board</h2><p class="fine">Every strategy Inspector has tested. CLEARED means it made money in both the
     {B.get('first_label', 'first months')} and the {B.get('last_label', 'last months')}. GUILTY means it lost overall.</p><div class="cases">{cards}</div></section>"""
 
@@ -978,6 +1086,16 @@ def telegram_summary(g):
             lines.append("Cleared: " + ", ".join(cl))
         if pg:
             lines.append("➡️ Starting 4 weeks of live paper trading (the proving ground): " + ", ".join(pg))
+    fx = g.get("fixes") or []
+    new = [f for f in fx if f["status"] == "proving" and f.get("days", 0) < 1]
+    ready = [f for f in fx if f["status"] == "ready"]
+    if new:
+        lines += ["", "🔧 New fixes confirmed on unseen months (now proving on fresh data for 28 days):"]
+        lines += [f"• {f['id']}: {f['case_name']}, {f['text']} ({f['test_before']:+.2f}R → {f['test_after']:+.2f}R)" for f in new[:4]]
+    if ready:
+        lines += ["", "✅ Fixes ready to apply:"]
+        lines += [f"• {f['id']}: {f['case_name']}, {f['text']} (fresh data {f['fresh_before']:+.2f}R → {f['fresh_after']:+.2f}R). "
+                  f"Reply /approve {f['id']}" for f in ready]
     F = g.get("fifty")
     if F:
         lines += ["", "📄 50 Pips a Day: " + fifty_verdict(F)]
@@ -1035,6 +1153,13 @@ def main():
     g["lab"] = lab(setups, log)
     g["fifty"] = fifty_lab(fifty, log)
     g["board"] = case_board(setups, fifty, case_trades, g["lab"], args.months, traded)
+    try:
+        prev = json.load(open("inspector.json")).get("grade", {}).get("fixes", [])
+    except (OSError, ValueError):
+        prev = []
+    g["fixes"] = fix_pipeline(g["board"], prev, time.time())
+    log.append(f"Fixes: {sum(1 for f in g['fixes'] if f['status'] == 'proving')} proving, "
+               f"{sum(1 for f in g['fixes'] if f['status'] == 'ready')} ready")
     g["traded"] = traded
     g["boosters"] = boosters(setups)
     log.append(f"Cases: {len(case_trades)} trades across {len(cs.CASES)} new strategies")
