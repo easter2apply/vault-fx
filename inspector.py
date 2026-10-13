@@ -38,7 +38,7 @@ def ts(s):
 
 def fetch(token, pair, gran, start):
     """Every complete candle from `start` until now, with mid, bid and ask."""
-    out, frm, first = [], start, True
+    out, frm, first, pages = [], start, True, 0
     while True:
         params = {"granularity": gran, "price": "MBA", "count": 5000,
                   "from": frm.strftime("%Y-%m-%dT%H:%M:%SZ")}
@@ -56,8 +56,9 @@ def fetch(token, pair, gran, start):
                         "bh": float(r["bid"]["h"]), "bl": float(r["bid"]["l"]), "bc": float(r["bid"]["c"]),
                         "ah": float(r["ask"]["h"]), "al": float(r["ask"]["l"]), "ac": float(r["ask"]["c"])})
         last = dt.datetime.fromisoformat(rows[-1]["time"][:19]).replace(tzinfo=UTC)
-        if len(rows) < 5000 or last >= dt.datetime.now(UTC) - dt.timedelta(minutes=30):
-            break
+        pages += 1
+        if last <= frm or pages > 40 or last >= dt.datetime.now(UTC) - dt.timedelta(hours=2):
+            break                                    # keep paging until we reach the present (OANDA may send short pages)
         frm = last
         time.sleep(0.2)
     for c in out:
@@ -90,6 +91,45 @@ def play(m15, start_i, d, entry, sl, tp, breakeven):
     j = min(j, len(m15) - 1)
     px = m15[j]["bc"] if d == 1 else m15[j]["ac"]
     return round((px - entry) * d / risk, 3), j, "timeout"
+
+
+# exit plans the lab tries: (stop size vs today's stop, target in R or None, special handling)
+EXITS = {
+    "today's exit (1.5R, breakeven at +1R)": (1.0, 1.5, "be"),
+    "1R target": (1.0, 1.0, None),
+    "2R target": (1.0, 2.0, None),
+    "3R target, breakeven at +1R": (1.0, 3.0, "be"),
+    "tighter stop, 2R target": (0.75, 2.0, None),
+    "wider stop, 1R target": (1.5, 1.0, None),
+    "trailing stop, no target": (1.0, None, "trail"),
+    "1.5R target, out after 24h": (1.0, 1.5, "day"),
+}
+
+
+def play_v(m15, start_i, d, entry, risk, target_r, mode):
+    """Like play(), for the lab's exit plans. Returns (R, exit timestamp)."""
+    stop = entry - d * risk
+    tp = entry + d * target_r * risk if target_r else None
+    end_ts = m15[start_i]["ts"] + (86400 if mode == "day" else HORIZON_DAYS * 86400)
+    best = entry
+    j = start_i + 1
+    while j < len(m15) and m15[j]["ts"] <= end_ts:
+        c = m15[j]
+        lo, hi = (c["bl"], c["bh"]) if d == 1 else (c["al"], c["ah"])
+        if (lo <= stop) if d == 1 else (hi >= stop):
+            return round((stop - entry) * d / risk, 3), c["ts"]
+        if tp is not None and ((hi >= tp) if d == 1 else (lo <= tp)):
+            return round(target_r, 3), c["ts"]
+        fav = hi if d == 1 else lo
+        best = max(best, fav) if d == 1 else min(best, fav)
+        if mode == "be" and (best - entry) * d >= risk and (stop - entry) * d < 0:
+            stop = entry
+        elif mode == "trail" and (best - entry) * d >= risk:
+            stop = max(stop, best - risk) if d == 1 else min(stop, best + risk)
+        j += 1
+    j = min(j, len(m15) - 1)
+    px = m15[j]["bc"] if d == 1 else m15[j]["ac"]
+    return round((px - entry) * d / risk, 3), m15[j]["ts"]
 
 
 # ───────────────────────────── replay one pair ───────────────────────────────
@@ -162,6 +202,12 @@ def replay(pair, h1, h4, m15, test_from, pip_loc, log):
             r_plain, _, how_plain = play(m15, j, d, entry, sl, tp, breakeven=False)
             rec = {"pair": pair, "t": c["t"], "tf": tf, "setup": s["setup"], "dir": d, "votes": {n: o for n, (o, _) in votes.items()},
                    "approved": ok, "r": r_plain, "how": how_plain, "free": free}
+            # lab data: how the council would vote with the pair free, plus every exit plan's result
+            hv = vf.council_breakout(s, True, "", now, pair, inf) if tf == "LB" else vf.council(s, sp, True, "", now, pair)
+            risk0 = abs(entry - sl)
+            rec["lab"] = {"ts": close_ts, "hour": now.hour, "adx": (s.get("h1_adx") if tf == "LB" else s.get("adx")) or 0,
+                          "ok": vf.approved(hv), "risk_ok": hv["Risk"][0] is True,
+                          "x": [play_v(m15, j, d, entry, risk0 * k, tr, mode) for (k, tr, mode) in EXITS.values()]}
             if ok:
                 r_live, k, how = play(m15, j, d, entry, sl, tp, breakeven=True)
                 rec.update(r_trade=r_live, how_trade=how)
@@ -289,6 +335,106 @@ def advice(g):
     return tips
 
 
+# ───────────────────────────── the lab ───────────────────────────────────────
+
+SETUP_SETS = {
+    "every setup type": lambda s: True,
+    "no 15-minute setups": lambda s: s["tf"] != "M15",
+    "1-hour setups only": lambda s: s["tf"] == "H1",
+    "1-hour pullbacks + London breakouts": lambda s: s["setup"] in ("pullback", "London breakout"),
+    "London breakouts only": lambda s: s["tf"] == "LB",
+}
+HOURS = {
+    "any hour": None,
+    "3 AM–noon ET": (7, 16),
+    "8 AM–noon ET (London + New York)": (12, 16),
+    "3–7 AM ET (London morning)": (7, 11),
+}
+COUNCILS = {"council approves": "ok", "Risk approves (spread check only)": "risk_ok", "no council": None}
+TRENDS = {"any trend": 0, "strong trend only (ADX 25+)": 25}
+
+
+def simulate(cands, xi, split_ts, pairs=None):
+    """One trade per pair at a time. Returns (train R list, test R list, per-pair train R)."""
+    busy, train, test, per_pair = {}, [], [], {}
+    for s in cands:
+        if pairs is not None and s["pair"] not in pairs:
+            continue
+        L = s["lab"]
+        if L["ts"] < busy.get(s["pair"], 0):
+            continue
+        r, exit_ts = L["x"][xi]
+        busy[s["pair"]] = exit_ts + 1
+        if L["ts"] < split_ts:
+            train.append(r); per_pair.setdefault(s["pair"], []).append(r)
+        else:
+            test.append(r)
+    return train, test, per_pair
+
+
+def lab(setups, log):
+    rows = sorted([s for s in setups if "lab" in s], key=lambda s: s["lab"]["ts"])
+    if len(rows) < 200:
+        return None
+    t0, t1 = rows[0]["lab"]["ts"], rows[-1]["lab"]["ts"]
+    split_ts = t0 + (t1 - t0) * 2 / 3
+    exits = list(EXITS)
+    results = []
+    started = time.time()
+    for sn, sf in SETUP_SETS.items():
+        for hn, hr in HOURS.items():
+            for cn, ck in COUNCILS.items():
+                for tn, tmin in TRENDS.items():
+                    cands = [s for s in rows if sf(s) and (hr is None or hr[0] <= s["lab"]["hour"] < hr[1])
+                             and (ck is None or s["lab"][ck]) and s["lab"]["adx"] >= tmin]
+                    if len(cands) < 40:
+                        continue
+                    for xi, xn in enumerate(exits):
+                        tr, te, pp = simulate(cands, xi, split_ts)
+                        rule = {"setups": sn, "hours": hn, "council": cn, "trend": tn, "exit": xn, "pairs": "all pairs"}
+                        results.append((rule, stats(tr), stats(te)))
+                        winners = sorted(p for p, rs in pp.items() if len(rs) >= 10 and sum(rs) / len(rs) > 0)
+                        if winners and len(winners) < len(pp):
+                            tr2, te2, _ = simulate(cands, xi, split_ts, set(winners))
+                            rule2 = dict(rule, pairs="only " + ", ".join(vf.NAMES.get(p, p) for p in winners))
+                            results.append((rule2, stats(tr2), stats(te2)))
+    log.append(f"Lab: tried {len(results)} rule sets in {time.time() - started:.0f}s")
+    train_months = (split_ts - t0) / (30.4 * 86400)
+    test_months = (t1 - split_ts) / (30.4 * 86400)
+    min_train = max(40, int(8 * train_months))           # at least ~2 trades a week, so it's not a fluke
+    ok = [r for r in results if r[1]["n"] >= min_train and r[2]["n"] >= 15]
+    ok.sort(key=lambda r: -(r[1]["avg"] or -9))
+    top = ok[:10]
+    base = next((r for r in results if r[0] == {"setups": "every setup type", "hours": "any hour", "council": "council approves",
+                                                 "trend": "any trend", "exit": exits[0], "pairs": "all pairs"}), None)
+    champ = top[0] if top else None
+    held = sum(1 for r in top if (r[2]["avg"] or -9) > 0.05)
+    passed = bool(champ and (champ[2]["avg"] or -9) >= 0.05 and champ[2]["total"] > 0)
+    fmt = lambda ts_: dt.datetime.fromtimestamp(ts_, UTC).strftime("%b %d")
+    return {"top": [{"rule": r[0], "train": r[1], "test": r[2]} for r in top],
+            "base": {"rule": base[0], "train": base[1], "test": base[2]} if base else None,
+            "champ": {"rule": champ[0], "train": champ[1], "test": champ[2]} if champ else None,
+            "passed": passed, "held": held, "tried": len(results),
+            "train_span": f"{fmt(t0)} – {fmt(split_ts)}", "test_span": f"{fmt(split_ts)} – {fmt(t1)}",
+            "train_months": train_months, "test_months": test_months}
+
+
+def rule_text(r):
+    parts = [r["setups"], r["hours"], r["council"], r["trend"], r["exit"], r["pairs"]]
+    return " · ".join(p for p in parts if p not in ("any hour", "any trend", "all pairs"))
+
+
+def lab_verdict(L):
+    if not L or not L["champ"]:
+        return "The lab didn't have enough setups to test."
+    c = L["champ"]
+    if L["passed"]:
+        return (f"The lab found a version that held up on months it never saw: {c['test']['avg']:+.2f}R per trade "
+                f"over {c['test']['n']} test trades. Worth trying on practice.")
+    return (f"No version held up. The best rule on the training months ({c['train']['avg']:+.2f}R) made "
+            f"{c['test']['avg']:+.2f}R on the unseen months. That points to no real edge in this strategy family.")
+
+
 # ───────────────────────────── report ────────────────────────────────────────
 
 def fr(x, digits=2):
@@ -347,7 +493,10 @@ ul.tips{{margin:0;padding-left:20px;display:grid;gap:8px}}
 .mb{{display:grid;grid-template-columns:44px 1fr 64px;gap:8px;align-items:center;font-size:13px;margin:4px 0}}
 .mb i{{display:block;height:12px;border-radius:4px;width:var(--w);min-width:2px}} .mb i.pos{{background:var(--good)}} .mb i.neg{{background:var(--bad)}}
 .mb b{{text-align:right;font-variant-numeric:tabular-nums}} .mb span{{color:var(--muted)}}
-.fine{{color:var(--muted);font-size:12.5px}} details summary{{cursor:pointer;color:var(--muted)}}
+.fine{{color:var(--muted);font-size:12.5px}}
+table.lab td{{font-size:13px}} td.rk{{color:var(--muted);width:28px}} tr.base td{{background:color-mix(in srgb,var(--acc) 8%,transparent)}}
+.champ{{border:1px solid var(--line);border-left:4px solid var(--wait);border-radius:10px;padding:10px 12px;margin:10px 0}}
+.champ.good{{border-left-color:var(--good)}} .champ ul{{margin:6px 0 0;padding-left:18px;font-size:14px}} details summary{{cursor:pointer;color:var(--muted)}}
 @media (max-width:560px){{th,td{{padding:7px 4px;font-size:13px}}}}
 </style></head><body><div class="wrap">
 <header><div class="badge" aria-hidden="true">🕵️</div><div><h1>Inspector's report</h1>
@@ -363,6 +512,8 @@ ul.tips{{margin:0;padding-left:20px;display:grid;gap:8px}}
 </div></section>
 
 <section><h2>What to do</h2><ul class="tips">{tips}</ul></section>
+
+{lab_html(g.get('lab'))}
 
 <section><h2>Does the council help?</h2>
 <div class="kpis">
@@ -392,6 +543,37 @@ Not simulated: the news blackout, the daily loss limit, the losing-streak breake
 </div></body></html>"""
 
 
+def lab_html(L):
+    if not L:
+        return ""
+    def cell(s):
+        if not s["n"]:
+            return "<td class='n'>—</td>"
+        return f"<td class='n {'pos' if s['avg'] > 0 else 'neg'}'>{s['avg']:+.2f}R<small>{s['n']} trades · {pc(s['win'])} win</small></td>"
+    rows = ""
+    for k, r in enumerate(L["top"]):
+        held = (r["test"]["avg"] or -9) > 0.05
+        rows += (f"<tr><td class='rk'>{k + 1}</td><td>{html.escape(rule_text(r['rule']))}</td>{cell(r['train'])}{cell(r['test'])}"
+                 f"<td>{'<span class=\'pill good\'>held up</span>' if held else '<span class=\'pill bad\'>fell apart</span>'}</td></tr>")
+    base = L["base"]
+    base_row = (f"<tr class='base'><td class='rk'>now</td><td>Your bot today</td>{cell(base['train'])}{cell(base['test'])}<td></td></tr>"
+                if base else "")
+    c = L["champ"]
+    champ = ""
+    if c:
+        r = c["rule"]
+        champ = f"""<div class="champ {'good' if L['passed'] else 'bad'}"><b>{'🏆 Best rule, and it held up' if L['passed'] else 'Best rule on the training months'}</b>
+          <ul><li>Setups: {html.escape(r['setups'])}</li><li>Hours: {html.escape(r['hours'])}</li><li>Votes: {html.escape(r['council'])}</li>
+          <li>Trend: {html.escape(r['trend'])}</li><li>Exit: {html.escape(r['exit'])}</li><li>Pairs: {html.escape(r['pairs'])}</li></ul></div>"""
+    return f"""<section><h2>🧪 The lab</h2><p class="verdict {'good' if L['passed'] else 'bad'}">{html.escape(lab_verdict(L))}</p>
+<p class="fine">Inspector tried {L['tried']:,} versions of the strategy: different setups, hours, voting, trend filters, exits and pairs.
+He picked the best on the <b>training months</b> ({L['train_span']}), then checked them on the <b>test months</b> ({L['test_span']}), which he never used
+to choose. A rule that only works on the months it was picked from is luck. A rule that keeps working on the unseen months might be real.
+{L['held']} of the top {len(L['top'])} held up.</p>
+{champ}
+<div class="tbl"><table class="lab"><tr><th>#</th><th>Rule</th><th>Training</th><th>Test (unseen)</th><th></th></tr>{base_row}{rows}</table></div></section>"""
+
+
 FEED = {"The Quant": "#3ee6a1", "Risk": "#ff5468", "Momentum": "#ffb03b", "Time": "#4cb7ff", "Doubt": "#c9a7ff"}
 
 
@@ -404,7 +586,14 @@ def telegram_summary(g):
     icon = {"helps": "✅", "hurts": "❌", "no real effect": "➖", "not enough data": "❔"}
     for n, o in g["officers"].items():
         lines.append(f"{icon[o['verdict']]} {n}: {o['verdict']} ({fr(o['diff'])})")
-    lines += ["", "What to do:"] + [f"• {x}" for x in g["advice"][:4]]
+    L = g.get("lab")
+    if L and L["champ"]:
+        c = L["champ"]
+        lines += ["", "🧪 Lab: " + lab_verdict(L),
+                  f"Best rule: {rule_text(c['rule'])}",
+                  f"Training {c['train']['avg']:+.2f}R ({c['train']['n']} trades) → unseen months {c['test']['avg']:+.2f}R ({c['test']['n']} trades)",
+                  f"{L['held']} of the top {len(L['top'])} rules held up on the unseen months."]
+    lines += ["", "What to do:"] + [f"• {x}" for x in g["advice"][:3]]
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     if "/" in repo:
         o_, r_ = repo.split("/", 1)
@@ -438,10 +627,11 @@ def main():
         except Exception as e:
             log.append(f"{pair}: skipped ({e})")
             continue
-        log.append(f"{pair}: {len(m15)} 15-min, {len(h1)} 1-hour, {len(h4)} 4-hour candles")
+        log.append(f"{pair}: {len(m15)} 15-min ({m15[0]['t'][:10] if m15 else '?'} → {m15[-1]['t'][:10] if m15 else '?'}), {len(h1)} 1-hour, {len(h4)} 4-hour candles")
         setups += replay(pair, h1, h4, m15, test_from.timestamp(), int(info.get(pair, {}).get("pipLocation", -4)), log)
         print(log[-1], flush=True)
     g = grade(setups, args.months)
+    g["lab"] = lab(setups, log)
     log.append(f"Finished in {(time.time() - started) / 60:.1f} min")
     with open("inspector.html", "w", encoding="utf-8") as f:
         f.write(render(g, log, started))
