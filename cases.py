@@ -176,6 +176,38 @@ def vol_expansion(pair, m15, j, h1, n1, d1, nd):
             "why": f"volatility up {atr_now / atr_then - 1:.0%} and a fresh 24-hour {'high' if d == 1 else 'low'}"}
 
 
+def _ema_list(xs, n):
+    k, e, out = 2 / (n + 1), None, []
+    for x in xs:
+        e = x if e is None else x * k + e * (1 - k)
+        out.append(e)
+    return out
+
+
+def usdcad_midday(pair, m15, j, h1, n1, d1, nd):
+    """The 6-month lab's 'cleared' rule: the bot's 1-hour pullbacks and crossovers, USD/CAD only,
+    8 AM–noon ET (12:00–16:00 GMT), no council vote, stop 2 ATR, target 2R."""
+    if pair != "USD_CAD" or n1 < 120 or h1[n1 - 1]["ts"] + 3600 != _closes_at(m15[j]):
+        return None
+    if not (12 <= (h1[n1 - 1]["ts"] // 3600 + 1) % 24 < 16):
+        return None                    # the candle that just closed ends between 12:00 and 16:00 GMT
+    win = h1[max(0, n1 - 300):n1]
+    cl = [x["c"] for x in win]
+    e20, e50 = _ema_list(cl, 20), _ema_list(cl, 50)
+    i = len(win) - 1
+    d = 1 if e20[i] > e50[i] else -1
+    crossed = any((e20[k] > e50[k]) != (e20[k - 1] > e50[k - 1]) for k in range(i - 2, i + 1))
+    touched = any(win[k]["l"] <= e20[k] <= win[k]["h"] for k in (i - 1, i))
+    closed_right = (win[i]["c"] > e20[i]) if d == 1 else (win[i]["c"] < e20[i])
+    if not (crossed or (touched and closed_right)):
+        return None
+    atr = _atr(h1, n1 - 1)
+    if not atr:
+        return None
+    return {"dir": d, "risk": 2 * atr, "target_r": 2.0, "trail": False, "max_hours": 240,
+            "why": f"1-hour {'crossover' if crossed else 'pullback'} on USD/CAD in the 8 AM–noon window"}
+
+
 CASES = {
     "mean_reversion": {"name": "Quiet-hours snap-back", "fn": mean_reversion,
                        "what": "Between 8 PM and 2 AM ET, when price stretches 2 standard deviations from its 15-min average with RSI extreme, bet it snaps back to the average. Stop 1.5 ATR, out within 8 hours."},
@@ -185,6 +217,8 @@ CASES = {
                       "what": "Gold only (the closest to break-even in the first report): trade the first break of the overnight range between 3 AM and 8 AM ET, stop at the middle of the range, target 2R."},
     "ny_opening_range": {"name": "New York opening range", "fn": ny_opening_range,
                          "what": "Mark the 9–10 AM ET range, trade the first close outside it before 1 PM ET. Stop at the middle of the range, target 1.5R, out within 6 hours."},
+    "usdcad_midday": {"name": "USD/CAD midday (lab rule)", "fn": usdcad_midday, "pairs": ["USD_CAD"],
+                      "what": "The 6-month lab's best rule: the bot's 1-hour pullbacks and crossovers on USD/CAD only, 8 AM–noon ET, no council vote, stop 2 ATR, target 2R."},
     "vol_expansion": {"name": "Trend + rising volatility", "fn": vol_expansion,
                       "what": "On a 1-hour close: the trend agrees, volatility is at least 30% above a day ago, and price makes a fresh 24-hour high (or low). Trailing stop, out within 3 days."},
 }
