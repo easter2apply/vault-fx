@@ -1,35 +1,38 @@
 name: Inspector
 on:
-  schedule:
-    - cron: "7 14 * * 0"        # every Sunday around 10 AM ET
   workflow_dispatch:
     inputs:
       months:
-        description: "How many months of history to replay"
-        default: "6"
+        description: "Months to judge on"
+        default: "12"
 permissions:
   contents: write
-concurrency:
-  group: inspector
-  cancel-in-progress: false
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Replay history through the council
+      - name: Carry Lab
         env:
           OANDA_API_TOKEN: ${{ secrets.OANDA_API_TOKEN }}
           OANDA_ACCOUNT_ID: ${{ secrets.OANDA_ACCOUNT_ID }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        run: python inspector.py --months "${{ inputs.months || '6' }}"
+        run: python carry_lab.py --months "${{ inputs.months || '12' }}"
       - name: Save the report
         run: |
-          git config user.name "inspector"
-          git config user.email "inspector@users.noreply.github.com"
-          git add inspector.html inspector.json
-          git diff --cached --quiet || (git commit -m "Inspector report" && git pull --rebase && git push)
+          mkdir -p /tmp/report && cp carry_lab.html carry_lab.json /tmp/report/
+          git config user.name "carry-lab"
+          git config user.email "carry-lab@users.noreply.github.com"
+          for i in 1 2 3 4 5; do
+            git fetch -q origin carry-lab && git reset -q --hard origin/carry-lab
+            cp /tmp/report/* .
+            git add carry_lab.html carry_lab.json
+            git diff --cached --quiet && exit 0
+            git commit -qm "Carry Lab report" && git push -q origin HEAD:carry-lab && exit 0
+            sleep 5
+          done
+          exit 1
