@@ -866,11 +866,12 @@ def manage_stop(api, st, tid, meta, mid, info, tg, log):
         log.append(f"{meta['pair']}: couldn't move stop ({e})")
         return
     first = not meta.get("breakeven")
-    if first and TRAIL and RUNNER_TARGET_R:
+    if TRAIL and RUNNER_TARGET_R and not meta.get("runner"):      # also upgrades trades that hit breakeven before this rule
         tp = entry + d * RUNNER_TARGET_R * r
         try:
             api.set_target(tid, fmt_price(tp, prec))
             meta["tp"] = tp
+            meta["runner"] = True
         except ApiError as e:
             log.append(f"{meta['pair']}: couldn't move the target ({e})")
     meta["breakeven"] = True
