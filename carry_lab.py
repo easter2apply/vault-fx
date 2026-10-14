@@ -35,6 +35,7 @@ TRAIN_YEARS = 3
 LOOKBACKS = [21, 63, 126, 252]          # ~1, 3, 6, 12 months of trading days
 KS = [1, 2, 3]                          # how many currencies long and short
 REBAL = {"weekly": 5, "monthly": 21}
+CRASH = ("2024-07-10", "2024-08-31")   # the yen carry-trade unwind (July 10 – Aug 31, 2024)
 
 
 def load(token, acct, years, log):
@@ -169,8 +170,15 @@ def run(days, px, spr, fin, test_months):
         d = backtest(days, rets, px, spr, fin, kind, L, k, reb)
         train = perf([x for x in d if x[0] < cut])
         test = perf([x for x in d if x[0] >= cut])
+        no_crash = perf([x for x in d if x[0] < cut and not (CRASH[0] <= x[0] <= CRASH[1])])
+        years = {}
+        for x in d:
+            years.setdefault(x[0][:4], []).append(x)
+        by_year = {y: perf(v) for y, v in sorted(years.items())}
+        crash = sum(x[1] for x in d if CRASH[0] <= x[0] <= CRASH[1])
         if train and test:
-            rows.append({"family": fam, "label": label, "train": train, "test": test})
+            rows.append({"family": fam, "label": label, "train": train, "test": test, "no_crash": no_crash,
+                         "by_year": {y: (p["total"] if p else None) for y, p in by_year.items()}, "crash_hit": crash})
     return rows, cut
 
 
@@ -186,8 +194,11 @@ def summary(rows, months, fin):
         best = max(rs, key=lambda r: r["train"]["sharpe"])
         t = best["test"]
         pos = sum(1 for r in rs if r["test"]["ann"] > 0)
-        lines += [f"{name}",
-                  f"• Best on earlier years: {best['label']} (Sharpe {best['train']['sharpe']:.2f}, {best['train']['ann']:+.1%}/yr)",
+        nc = best.get("no_crash")
+        crash_line = (f"• Earlier years WITHOUT the 2024 yen crash: {nc['ann']:+.1%}/yr (crash itself cost {best['crash_hit']:+.1%})"
+                      if nc else "")
+        lines += [f"{name}", crash_line] if crash_line else [f"{name}"]
+        lines += [f"• Best on earlier years: {best['label']} (Sharpe {best['train']['sharpe']:.2f}, {best['train']['ann']:+.1%}/yr)",
                   f"• Last {months:g} months: {t['ann']:+.1%}/yr, worst drop {t['max_dd']:.1%}, {t['months_up']}/{t['months']} months up"
                   + (f", interest {t['carry_part']:+.1%}/yr of it" if fam in ("carry", "combo") else ""),
                   f"• {pos} of {len(rs)} versions were up over the last {months:g} months", ""]
