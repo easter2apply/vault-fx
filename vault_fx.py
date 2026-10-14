@@ -47,6 +47,11 @@ STREAK_RECOVER_WINS = 2      # back to full size after 2 wins
 STOP_ATR = 2.0               # stop loss = 2 × ATR from entry
 TARGET_ATR = 3.0             # take profit = 3 × ATR from entry (1.5 : 1 reward : risk)
 BREAKEVEN_AT_R = 1.0         # move the stop to entry once the trade is +1R
+TRAIL = True                 # ...then keep moving the stop up behind the best price (never down)
+TRAIL_DIST_R = 0.75          #   the stop trails 0.75R behind the best price reached
+RUNNER_TARGET_R = 3.0        #   and the take-profit moves out to +3R so winners can run
+MAX_HOLD_HOURS = 24          # a trade that hasn't locked in any profit after 24h is closed to free the slot
+MAX_HOLD_PROFIT_HOURS = 72   # even a winning trade is closed after 3 days
 COUNCIL_MIN_YES = 4          # a trade needs 4 of 5 YES votes, and Risk must vote YES
 RELAXED = True               # practice-friendly rules: more trades so the council learns faster (set False for strict)
 ADX_MIN = 18 if RELAXED else 22                  # The Quant wants a trend at least this strong
@@ -180,6 +185,10 @@ class Oanda:
 
     def set_stop(self, trade_id, price):
         body = {"stopLoss": {"price": price, "timeInForce": "GTC"}}
+        return http("PUT", f"{OANDA}/accounts/{self.a}/trades/{trade_id}/orders", self.t, body=body, tries=1)
+
+    def set_target(self, trade_id, price):
+        body = {"takeProfit": {"price": price, "timeInForce": "GTC"}}
         return http("PUT", f"{OANDA}/accounts/{self.a}/trades/{trade_id}/orders", self.t, body=body, tries=1)
 
     def close(self, trade_id):
@@ -810,6 +819,74 @@ def accuracy_change(st):
             "before_source": "live" if any(c["closed_ts"] < since for c in closed) else "backtest"}
 
 
+def init_risk(meta):
+    """The trade's original 1R (entry-to-stop distance), even after the stop has moved."""
+    if meta.get("r0"):
+        return meta["r0"]
+    r = None
+    if meta.get("tp") and meta.get("entry"):
+        r = abs(meta["tp"] - meta["entry"]) * STOP_ATR / TARGET_ATR       # target = 1.5R for council trades
+    if not r and not meta.get("breakeven"):
+        r = abs(meta["entry"] - meta["sl"])
+    meta["r0"] = r
+    return r
+
+
+def trade_age_h(meta, now):
+    try:
+        t = dt.datetime.fromisoformat(str(meta.get("opened", ""))[:19]).replace(tzinfo=dt.timezone.utc)
+    except ValueError:
+        return None
+    return (now - t).total_seconds() / 3600
+
+
+def manage_stop(api, st, tid, meta, mid, info, tg, log):
+    """At +1R: stop to entry. After that the stop follows the best price, TRAIL_DIST_R behind, and never moves back."""
+    r = init_risk(meta)
+    if not r:
+        return
+    d, entry = meta["dir"], meta["entry"]
+    best = meta.get("best", entry)
+    best = max(best, mid) if d == 1 else min(best, mid)
+    meta["best"] = best
+    if (best - entry) * d < BREAKEVEN_AT_R * r:
+        return
+    want = entry
+    if TRAIL:
+        trail = best - d * TRAIL_DIST_R * r
+        want = max(entry, trail) if d == 1 else min(entry, trail)
+    step_ok = not meta.get("breakeven") or (want - meta["sl"]) * d >= 0.1 * r     # only move in meaningful steps
+    room_ok = (mid - want) * d > 0.1 * r                                         # never right on top of the price
+    if not step_ok or not room_ok:
+        return
+    prec = int(info.get(meta["pair"], {}).get("displayPrecision", 5))
+    try:
+        api.set_stop(tid, fmt_price(want, prec))
+    except ApiError as e:
+        log.append(f"{meta['pair']}: couldn't move stop ({e})")
+        return
+    first = not meta.get("breakeven")
+    if first and TRAIL and RUNNER_TARGET_R:
+        tp = entry + d * RUNNER_TARGET_R * r
+        try:
+            api.set_target(tid, fmt_price(tp, prec))
+            meta["tp"] = tp
+        except ApiError as e:
+            log.append(f"{meta['pair']}: couldn't move the target ({e})")
+    meta["breakeven"] = True
+    meta["sl"] = want
+    locked = (want - entry) * d / r
+    name = f"{NAMES[meta['pair']]} {'BUY' if d == 1 else 'SELL'}"
+    if first or locked - meta.get("told_lock", 0) >= 0.5:
+        meta["told_lock"] = locked
+        txt = (f"stop moved to entry, so it can't lose now. Target pushed out to +{RUNNER_TARGET_R:g}R and the stop will follow the price up."
+               if locked < 0.05 and first else "stop moved to entry. This trade can't lose now." if locked < 0.05 else
+               f"stop moved to lock in about {locked:+.1f}R ({money(locked * meta.get('risk', 0))}). It keeps following the price.")
+        feed_add(st, "event", f"{NAMES[meta['pair']]} stop moved", who="Risk", text=f"{name}: {txt}")
+        if tg:
+            tg.say(f"🔒 {name}: {txt}")
+
+
 def proving_checks(st, tg):
     for cid in cs.CASES:
         P = st.setdefault("paper", {}).setdefault(cid, {"open": {}, "closed": [], "started": time.time()})
@@ -963,6 +1040,7 @@ BOT_COMMAND_GROUPS = [
     ('🎛 Control', [
         ('pause', 'Stop opening new trades (open ones keep their stops)'),
         ('resume', 'Start trading again'),
+        ('close', 'Close one trade, e.g. /close EUR/USD'),
         ('closeall', 'Close every open trade and pause'),
         ('testtrade', 'Place and close a tiny test trade'),
     ]),
@@ -1146,6 +1224,18 @@ def run(log, full=True):
                     st["streak"]["until"] = 0
                     tg.say("🧊 Timeout ended early. Still trading at half size until 2 wins.")
                 feed_add(st, "event", "Resumed", who="Chair", text="You resumed trading. Back to normal.")
+            elif cmd == "/close":
+                want = arg.strip().upper().replace("/", "_").replace(" ", "")
+                hits = [(k, m) for k, m in st["trades"].items() if want and (m["pair"] == want or m["pair"].startswith(want) or want in m["pair"])]
+                if not hits:
+                    tg.say("Which one? Open trades: " + (", ".join(NAMES[m["pair"]] for m in st["trades"].values()) or "none")
+                           + "\nExample: /close EUR/USD")
+                for k, m in hits:
+                    try:
+                        api.close(k)
+                        tg.say(f"✅ Closing {NAMES[m['pair']]} now. The result shows up on the next update. The bot keeps trading.")
+                    except ApiError as e:
+                        tg.say(f"Couldn't close {NAMES[m['pair']]}: {e}")
             elif cmd == "/closeall":
                 n = 0
                 for t in api.open_trades():
@@ -1309,20 +1399,22 @@ def run(log, full=True):
                     api.close(tid); log.append(f"{meta['pair']}: {meta.get('setup')} time limit reached, closed")
                 except ApiError as e:
                     log.append(f"{meta['pair']}: couldn't close at time limit ({e})")
-            if mid and not meta.get("breakeven") and not meta.get("case"):
-                r_dist = abs(meta["entry"] - meta["sl"])
-                gain = (mid - meta["entry"]) * meta["dir"]
-                if r_dist and gain >= BREAKEVEN_AT_R * r_dist:
-                    prec = int(info.get(meta["pair"], {}).get("displayPrecision", 5))
+            if mid and not meta.get("case"):
+                manage_stop(api, st, tid, meta, mid, info, tg, log)
+                age_h = trade_age_h(meta, now)
+                locked = meta.get("breakeven") and (meta["sl"] - meta["entry"]) * meta["dir"] >= 0
+                if age_h is not None and (age_h >= MAX_HOLD_PROFIT_HOURS or (age_h >= MAX_HOLD_HOURS and not locked)):
                     try:
-                        api.set_stop(tid, fmt_price(meta["entry"], prec))
-                        meta["breakeven"] = True; meta["sl"] = meta["entry"]
-                        feed_add(st, "event", f"{NAMES[meta['pair']]} stop to breakeven", who="Risk",
-                                 text=f"Locked the {NAMES[meta['pair']]} stop at entry. This one can't lose now.")
+                        api.close(tid)
+                        why = "3-day limit" if age_h >= MAX_HOLD_PROFIT_HOURS else "24h with no locked-in profit"
+                        log.append(f"{meta['pair']}: closed by the time limit ({why})")
+                        feed_add(st, "event", f"{NAMES[meta['pair']]} closed on time", who="Time",
+                                 text=f"{NAMES[meta['pair']]} sat for {age_h:.0f} hours ({why}). Closed it to free the slot.")
                         if tg:
-                            tg.say(f"🔒 {NAMES[meta['pair']]} {'BUY' if meta['dir'] == 1 else 'SELL'}: stop moved to entry. This trade can't lose now.")
+                            tg.say(f"⏱ {NAMES[meta['pair']]} {'BUY' if meta['dir'] == 1 else 'SELL'}: closed after {age_h:.0f} hours ({why}) "
+                                   f"at about {money(meta.get('upl', 0))}, so the bot can take new setups.")
                     except ApiError as e:
-                        log.append(f"{meta['pair']}: couldn't move stop ({e})")
+                        log.append(f"{meta['pair']}: couldn't close at the time limit ({e})")
             continue
         try:
             t = api.trade(tid)
@@ -1592,7 +1684,7 @@ def run(log, full=True):
                                          f"{fmt_price(fill_px, prec)}, stop {fmt_price(sl, prec)}, target {fmt_price(tp, prec)}.")
             tid = str(opened["tradeID"])
             st["trades"][tid] = {"pair": pair, "dir": d, "units": units, "entry": fill_px, "sl": sl, "tp": tp,
-                                 "opened": now.isoformat()[:19], "risk": round(risk_usd, 2), "votes": plain_votes,
+                                 "opened": now.isoformat()[:19], "risk": round(risk_usd, 2), "r0": abs(entry - sl), "votes": plain_votes,
                                  "setup": a["setup"], "tf": tf, "price": fill_px, "upl": 0.0}
             open_pairs.add(pair)
             today["approved"] += 1
@@ -3672,7 +3764,7 @@ details {{ color:var(--muted) }} .fine {{ color:var(--muted); font-size:12px; ma
 The council (Quant = ADX strength, Risk = spread/exposure/limits, Momentum = MACD, Time = RSI + trading hours, Doubt = 4-hour trend)
 must approve with Risk in favor (4 of 5 at equal weights; voters with better records count more once they have {LEARN_MIN_CALLS} scored calls).
 Pair + setup combos that average below 0R over their last {BENCH_MIN} results are benched until they recover. No new trades around high-impact news. Each trade risks {RISK_PCT:.0%} of the account with a stop at {STOP_ATR:g}× ATR and a target at {TARGET_ATR:g}× ATR;
-the stop moves to entry at +{BREAKEVEN_AT_R:g}R. Limits: {MAX_OPEN_TRADES} open trades, {DAILY_LOSS_LIMIT:.0%} daily loss stop, {MAX_DRAWDOWN:.0%} drawdown pause.
+the stop moves to entry at +{BREAKEVEN_AT_R:g}R and then trails {TRAIL_DIST_R:g}R behind the best price; trades with no locked-in profit close after {MAX_HOLD_HOURS}h (any trade after {MAX_HOLD_PROFIT_HOURS}h). Limits: {MAX_OPEN_TRADES} open trades, {DAILY_LOSS_LIMIT:.0%} daily loss stop, {MAX_DRAWDOWN:.0%} drawdown pause.
 Rejected setups are scored against later prices so "Who called it?" learns from both sides. Forex is leveraged and most retail accounts lose money.
 This is software, not financial advice.</p>
 </div></body></html>"""
