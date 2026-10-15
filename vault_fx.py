@@ -1485,6 +1485,27 @@ def run(log, full=True):
     global DOUBT_JOB
     DOUBT_JOB = st.get("doubt_job") or dict(DOUBT_DEFAULT)
     open_pairs = {m["pair"] for m in st["trades"].values()}
+
+    def council_break():
+        """The council rests (no debates, no votes) while it can't open a trade anyway."""
+        if st["day"].get("halted"):
+            reset = (now.replace(hour=0, minute=0, second=0, microsecond=0) + dt.timedelta(days=1)).astimezone(LOCAL_TZ)
+            return f"daily loss limit hit. Back when the day resets ({reset.strftime('%-I %p').lower()} ET)"
+        if len(st["trades"]) >= MAX_OPEN_TRADES:
+            return f"all {MAX_OPEN_TRADES} trade slots are full. Back as soon as one closes"
+        return None
+
+    if full:
+        brk = council_break()
+        if brk and st.get("on_break") != brk:
+            feed_add(st, "event", "Council on break", who="Chair", text=f"☕ Taking a break: {brk}.")
+            if tg:
+                tg.say(f"☕ The council is taking a break: {brk}. Open trades keep their stops and trailing.")
+        elif not brk and st.get("on_break"):
+            feed_add(st, "event", "Council is back", who="Chair", text="🔔 Break's over. Back to watching every pair.")
+            if tg:
+                tg.say("🔔 The council is back from its break and watching every pair again.")
+        st["on_break"] = brk
     for pair in (pairs if full else []):
         try:
             h1, h4, m15 = api.candles(pair, "H1", 300), api.candles(pair, "H4", 300), api.candles(pair, "M15", 300)
@@ -1570,6 +1591,9 @@ def run(log, full=True):
         for tf, a, _candles in tfs:
             if st.get("strategy") in cs.CASES:
                 break                               # a promoted case is trading; the council steps aside
+            if council_break():
+                log.append(f"{pair}: council on break ({council_break()})")
+                break                               # can't trade anyway: no debate, no vote
             bar_key = pair if tf == "H1" else f"{pair}:{tf}"
             if st["last_bar"].get(bar_key) == a["time"]:
                 continue                            # already decided on this candle
