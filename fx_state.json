@@ -2,11 +2,11 @@
  "account": {
   "balance": 499.77,
   "currency": "USD",
-  "margin_avail": 99546.7201,
-  "nav": 520.0566,
-  "oanda_nav": 100019.5152,
-  "unrealized": 20.2866,
-  "updated": 1792135814.975444
+  "margin_avail": 99549.3957,
+  "nav": 523.5817999999999,
+  "oanda_nav": 100022.2005,
+  "unrealized": 23.811799999999998,
+  "updated": 1792136115.572422
  },
  "bot_username": "EVaultFX_bot",
  "chat_id": "7590441188",
@@ -4124,78 +4124,6 @@
    "kind": "vote",
    "lines": [
     {
-     "say": "Data's too weak: ADX 17 (needs 18).",
-     "vote": false,
-     "who": "The Quant"
-    },
-    {
-     "say": "Blocked. Already in a trade on this pair; 3 trades already open; already 2 trades betting the dollar goes down; benched: pullback 15m setups on GBP/USD have been losing (-0.07R).",
-     "vote": false,
-     "who": "Risk"
-    },
-    {
-     "say": "Engine's running: MACD with us (up).",
-     "vote": true,
-     "who": "Momentum"
-    },
-    {
-     "say": "Good window. RSI 52.",
-     "vote": true,
-     "who": "Time"
-    },
-    {
-     "say": "Hm. A decent hour for this. I can't argue.",
-     "vote": true,
-     "who": "Doubt"
-    }
-   ],
-   "ok": false,
-   "t": 1792081824.33978,
-   "text": null,
-   "title": "GBP/USD BUY (pullback 15m)",
-   "verdict": "REJECTED 3\u20132. Logged on paper so we learn whether we were right.",
-   "who": null
-  },
-  {
-   "kind": "vote",
-   "lines": [
-    {
-     "say": "I need more than this. ADX 14 (needs 18).",
-     "vote": false,
-     "who": "The Quant"
-    },
-    {
-     "say": "Hard no. 3 trades already open; already 2 trades betting the dollar goes down.",
-     "vote": false,
-     "who": "Risk"
-    },
-    {
-     "say": "It's moving our way. MACD with us (down).",
-     "vote": true,
-     "who": "Momentum"
-    },
-    {
-     "say": "Clock agrees: RSI 49.",
-     "vote": true,
-     "who": "Time"
-    },
-    {
-     "say": "Begrudgingly yes: A decent hour for this.",
-     "vote": true,
-     "who": "Doubt"
-    }
-   ],
-   "ok": false,
-   "t": 1792081831.065494,
-   "text": null,
-   "title": "USD/CAD SELL (pullback 15m)",
-   "verdict": "REJECTED 3\u20132. Logged on paper so we learn whether we were right.",
-   "who": null
-  },
-  {
-   "kind": "vote",
-   "lines": [
-    {
      "say": "I need more than this. ADX 11 (needs 18).",
      "vote": false,
      "who": "The Quant"
@@ -6782,6 +6710,67 @@
    ],
    "ok": null,
    "t": 1792135825.646,
+   "text": null,
+   "title": "Scanned 8 markets: 1 setup on the latest candle",
+   "verdict": null,
+   "who": null
+  },
+  {
+   "kind": "event",
+   "lines": [],
+   "ok": null,
+   "t": 1792136117.7033815,
+   "text": "EUR/JPY BUY: stop moved to lock in about +0.3R (+$1.35). It keeps following the price.",
+   "title": "EUR/JPY stop moved",
+   "verdict": null,
+   "who": "Risk"
+  },
+  {
+   "kind": "scan",
+   "lines": [
+    {
+     "say": "\u25bc ADX 15, RSI 46: trend too weak, waiting",
+     "vote": null,
+     "who": "USD/JPY"
+    },
+    {
+     "say": "\u25b2 ADX 25, RSI 66: in a trade",
+     "vote": null,
+     "who": "GBP/JPY"
+    },
+    {
+     "say": "\u25b2 ADX 18, RSI 59: in a trade",
+     "vote": null,
+     "who": "EUR/JPY"
+    },
+    {
+     "say": "\u25bc ADX 29, RSI 57: trending, waiting for a pullback",
+     "vote": null,
+     "who": "AUD/JPY"
+    },
+    {
+     "say": "\u25b2 ADX 26, RSI 73: in a trade",
+     "vote": null,
+     "who": "GBP/USD"
+    },
+    {
+     "say": "\u25bc ADX 30, RSI 61: trending, waiting for a pullback",
+     "vote": null,
+     "who": "AUD/USD"
+    },
+    {
+     "say": "\u25bc ADX 25, RSI 36: trending, waiting for a pullback",
+     "vote": null,
+     "who": "USD/CHF"
+    },
+    {
+     "say": "\u25b2 ADX 19, RSI 62: trending, waiting for a pullback",
+     "vote": null,
+     "who": "EUR/USD"
+    }
+   ],
+   "ok": null,
+   "t": 1792136124.633397,
    "text": null,
    "title": "Scanned 8 markets: 1 setup on the latest candle",
    "verdict": null,
@@ -9425,8 +9414,8 @@
  },
  "last_daily": "2026-10-15",
  "last_deploy": 1792135521.9442563,
- "last_full_run": 1792135814.975444,
- "last_run": 1792135814.975444,
+ "last_full_run": 1792136115.572422,
+ "last_run": 1792136115.572422,
  "last_vote": {
   "approved": true,
   "ask": 0,
@@ -12873,7 +12862,7 @@
    },
    "rsi": 57.14135665201908,
    "setup": null,
-   "spread_pips": 2.199999999999136,
+   "spread_pips": 2.1000000000000796,
    "tradeable": true,
    "trend": -1
   },
@@ -12899,7 +12888,7 @@
    },
    "rsi": 60.67429580138497,
    "setup": null,
-   "spread_pips": 1.40000000000029,
+   "spread_pips": 1.3999999999991797,
    "tradeable": true,
    "trend": -1
   },
@@ -12922,7 +12911,7 @@
    },
    "rsi": 59.081806273790356,
    "setup": "pullback",
-   "spread_pips": 2.400000000000091,
+   "spread_pips": 2.899999999999636,
    "tradeable": true,
    "trend": 1
   },
@@ -12972,7 +12961,7 @@
    },
    "rsi": 66.17103384331035,
    "setup": null,
-   "spread_pips": 3.099999999997749,
+   "spread_pips": 3.499999999999659,
    "tradeable": true,
    "trend": 1
   },
@@ -13048,7 +13037,7 @@
    },
    "rsi": 35.997534178557956,
    "setup": null,
-   "spread_pips": 1.4999999999998348,
+   "spread_pips": 1.5999999999993797,
    "tradeable": true,
    "trend": -1
   },
@@ -13073,7 +13062,7 @@
    },
    "rsi": 46.23262902746243,
    "setup": null,
-   "spread_pips": 1.6999999999995907,
+   "spread_pips": 1.4000000000010004,
    "tradeable": true,
    "trend": -1
   }
@@ -13718,7 +13707,7 @@
   }
  ],
  "paused": null,
- "peak": 520.8109,
+ "peak": 523.5817999999999,
  "record": {
   "losses": 14,
   "pl": -0.23,
@@ -14274,7 +14263,7 @@
    "entry": 1.32595,
    "opened": "2026-10-15T09:00:21",
    "pair": "GBP_USD",
-   "price": 1.331925,
+   "price": 1.332055,
    "r0": 0.003318675172948371,
    "risk": 4.99,
    "runner": true,
@@ -14284,7 +14273,7 @@
    "told_lock": 0.9193408397298417,
    "tp": 1.335906025518845,
    "units": 1502,
-   "upl": 8.8468,
+   "upl": 9.042,
    "votes": {
     "Doubt": true,
     "Momentum": true,
@@ -14294,23 +14283,23 @@
    }
   },
   "255": {
-   "best": 210.383,
+   "best": 210.42950000000002,
    "breakeven": true,
    "dir": 1,
    "entry": 210.004,
    "opened": "2026-10-16T04:20:13",
    "pair": "GBP_JPY",
-   "price": 210.3275,
+   "price": 210.42950000000002,
    "r0": 0.18300201328398202,
    "risk": 5.07,
    "runner": true,
    "setup": "pullback 15m",
-   "sl": 210.24574849003702,
+   "sl": 210.29224849003703,
    "tf": "M15",
    "told_lock": 1.1160996885869168,
    "tp": 210.55300603985194,
    "units": 3813,
-   "upl": 7.1714,
+   "upl": 9.8477,
    "votes": {
     "Doubt": true,
     "Momentum": true,
@@ -14320,20 +14309,23 @@
    }
   },
   "263": {
-   "best": 177.552,
+   "best": 177.6035,
+   "breakeven": true,
    "dir": 1,
    "entry": 177.221,
    "opened": "2026-10-16T05:10:14",
    "pair": "EUR_JPY",
-   "price": 177.552,
+   "price": 177.6035,
    "r0": 0.3759456478573213,
    "risk": 5.03,
+   "runner": true,
    "setup": "pullback",
-   "sl": 176.8470543521427,
+   "sl": 177.321540764107,
    "tf": "H1",
-   "tp": 177.786918471786,
+   "told_lock": 0.2674343078049204,
+   "tp": 178.34883694357197,
    "units": 2113,
-   "upl": 4.2684,
+   "upl": 4.9221,
    "votes": {
     "Doubt": true,
     "Momentum": true,
