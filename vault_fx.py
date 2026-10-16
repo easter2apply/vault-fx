@@ -32,8 +32,8 @@ import urllib.request
 from zoneinfo import ZoneInfo
 
 # ─────────────────────────── SETTINGS (edit these) ───────────────────────────
-PAIRS = ["EUR_USD", "GBP_USD", "AUD_USD", "USD_JPY", "USD_CAD", "USD_CHF", "XAU_USD"]
-MAX_SAME_DOLLAR_BETS = 2     # never more than 2 open trades betting the same way on the US dollar
+PAIRS = ["USD_JPY", "GBP_JPY", "EUR_JPY", "AUD_JPY", "GBP_USD", "AUD_USD", "USD_CHF", "EUR_USD"]   # the biggest movers for their cost (Move Lab, Oct 2026)
+MAX_SAME_DOLLAR_BETS = 2     # never more than 2 open trades betting the same way on any one currency (dollar, yen, pound...)
 START_BALANCE = 500.00       # the bot trades as if the account holds this much (set to None to use the real OANDA balance)
 RISK_PCT = 0.01              # risk 1% of account value per trade (distance to stop × units)
 MAX_OPEN_TRADES = 3          # never more than this many trades at once (one per pair)
@@ -61,6 +61,9 @@ TRADING_HOURS_UTC = (6, 20)  # London + New York sessions (2 AM – 4 PM ET)
 SESSION_HOURS_UTC = {        # pairs that also trade the Asian session; 20–23 UTC (around the 5 PM ET rollover) stays off
     "USD_JPY": [(6, 20), (23, 24), (0, 6)],
     "AUD_USD": [(6, 20), (23, 24), (0, 6)],
+    "AUD_JPY": [(6, 20), (23, 24), (0, 6)],
+    "EUR_JPY": [(6, 20), (23, 24), (0, 6)],
+    "GBP_JPY": [(6, 20), (23, 24), (0, 6)],
 }
 SHADOW_DAYS = 7              # rejected setups are scored for up to a week
 COUNCIL_MIN_SHARE = 0.6 if RELAXED else 0.75   # weighted YES share (equal weights: 3 of 5 relaxed, 4 of 5 strict); Risk always vetoes
@@ -95,7 +98,8 @@ OANDA_ENV = os.environ.get("OANDA_ENV", "practice").strip().lower() or "practice
 OANDA = ("https://api-fxtrade.oanda.com/v3" if OANDA_ENV == "live"
          else "https://api-fxpractice.oanda.com/v3")
 NAMES = {"EUR_USD": "EUR/USD", "GBP_USD": "GBP/USD", "AUD_USD": "AUD/USD", "USD_JPY": "USD/JPY",
-         "USD_CAD": "USD/CAD", "USD_CHF": "USD/CHF", "XAU_USD": "Gold"}
+         "USD_CAD": "USD/CAD", "USD_CHF": "USD/CHF", "XAU_USD": "Gold", "GBP_JPY": "GBP/JPY", "EUR_JPY": "EUR/JPY",
+         "AUD_JPY": "AUD/JPY"}
 VOTERS = ["The Quant", "Risk", "Momentum", "Time", "Doubt"]
 ROLES = {"The Quant": "trend strength (ADX)", "Risk": "spread, exposure and loss limits",
          "Momentum": "MACD agrees and is building", "Time": "not overextended, in session",
@@ -552,6 +556,26 @@ def news_label(e):
     return f"{e['cur']} {e['title']} ({dt.datetime.fromtimestamp(e['t'], LOCAL_TZ):%a %I:%M %p} ET)"
 
 
+CUR_NAMES = {"USD": "dollar", "JPY": "yen", "GBP": "pound", "EUR": "euro", "AUD": "Aussie dollar", "CHF": "franc",
+             "CAD": "Canadian dollar", "NZD": "Kiwi dollar"}
+
+
+def exposure(pair, d):
+    """Which way a trade bets on each currency: buying GBP_JPY = pound up (+1), yen down (−1)."""
+    base, quote = pair.split("_")
+    return {base: d, quote: -d}
+
+
+def crowded(trades, pair, d):
+    """(currency, way, count) for the currency this trade would pile onto most, given the open trades."""
+    worst = (None, 0, 0)
+    for cur, way in exposure(pair, d).items():
+        n = sum(1 for m in trades if exposure(m["pair"], m["dir"]).get(cur) == way)
+        if n > worst[2]:
+            worst = (cur, way, n)
+    return worst
+
+
 def usd_direction(pair, d):
     """+1 if the trade wins when the dollar rises, −1 if it wins when the dollar falls."""
     return d if pair.startswith("USD_") else -d
@@ -574,6 +598,21 @@ def day_stats(st, nav=None):
 
 # ───────────────────────────── Sizing + prices ───────────────────────────────
 
+USD_RATES = {}                # mid prices of the dollar pairs, refreshed every run (for sizing crosses like GBP/JPY)
+RATE_PAIRS = ["EUR_USD", "GBP_USD", "AUD_USD", "NZD_USD", "USD_JPY", "USD_CHF", "USD_CAD"]
+
+
+def usd_per(cur):
+    """Dollars per 1 unit of a currency."""
+    if cur == "USD":
+        return 1.0
+    if f"{cur}_USD" in USD_RATES:
+        return USD_RATES[f"{cur}_USD"]
+    if f"USD_{cur}" in USD_RATES:
+        return 1.0 / USD_RATES[f"USD_{cur}"]
+    return None
+
+
 def usd_per_unit_move(pair, price):
     """Dollars gained per unit for a 1.0 price move."""
     base, quote = pair.split("_")
@@ -581,12 +620,17 @@ def usd_per_unit_move(pair, price):
         return 1.0
     if base == "USD":
         return 1.0 / price
-    return None
+    return usd_per(quote)                      # crosses: e.g. GBP/JPY moves are paid in yen
 
 
 def notional_usd(pair, units, price):
     base, quote = pair.split("_")
-    return units * price if quote == "USD" else units if base == "USD" else None
+    if quote == "USD":
+        return units * price
+    if base == "USD":
+        return units
+    r = usd_per(base)
+    return units * r if r else None
 
 
 def fmt_price(x, prec):
@@ -1387,6 +1431,11 @@ def run(log, full=True):
         if p not in info:
             log.append(f"{p}: not offered on this OANDA account, skipping")
     prices = api.pricing(pairs) if pairs else {}
+    try:
+        for k, q in api.pricing([r for r in RATE_PAIRS if r in info]).items():
+            USD_RATES[k] = (float(q["bids"][0]["price"]) + float(q["asks"][0]["price"])) / 2
+    except (ApiError, KeyError, IndexError, ValueError) as e:
+        log.append(f"couldn't refresh dollar rates ({e}); cross pairs skip new trades this run")
     open_now = {t["id"]: t for t in api.open_trades()}
     for tid, meta in list(st["trades"].items()):
         if tid in open_now:
@@ -1622,9 +1671,9 @@ def run(log, full=True):
                 reasons.append(f"{MAX_OPEN_TRADES} trades already open")
             if not p.get("tradeable", False):
                 reasons.append("market closed")
-            same = sum(1 for m in st["trades"].values() if usd_direction(m["pair"], m["dir"]) == usd_direction(pair, a["trend"]))
+            cur, way, same = crowded(st["trades"].values(), pair, a["trend"])
             if same >= MAX_SAME_DOLLAR_BETS:
-                reasons.append(f"already {same} trades betting the dollar goes {'up' if usd_direction(pair, a['trend']) == 1 else 'down'}")
+                reasons.append(f"already {same} trades betting the {CUR_NAMES.get(cur, cur)} goes {'up' if way == 1 else 'down'}")
             ts = now.timestamp()
             hit = next((e for e in news if e["cur"] in pair_currencies(pair)
                         and e["t"] - NEWS_BEFORE_MIN * 60 <= ts <= e["t"] + NEWS_AFTER_MIN * 60), None)
@@ -2291,7 +2340,8 @@ def council_room(state):
                        "ticker": state.get("ticker", []), "recess": state.get("recess"),
                        "chatter": talk, "dialogs": dialogs, "lastVoteT": int(lv["when"]) if lv else 0,
                        "nextVote": nv, "scanT": int(state.get("last_run") or time.time()),
-                       "parties": [p_ for p_ in state.get("parties", []) if time.time() - p_["t"] < 172800][-3:]})
+                       "parties": [p_ for p_ in state.get("parties", []) if time.time() - p_["t"] < 172800][-3:],
+                       "bot": "Vault FX", "key": "vfx"})
     script = ROOM_JS.replace("__DATA__", data.replace("</", "<\\/"))
     return f"""<section class="room" id="room3d" aria-label="Council room">
   <div class="roomhead">
@@ -2315,7 +2365,7 @@ def council_room(state):
   {f'<p class="mood-tg">Want it on the record? <a href="https://t.me/{state["bot_username"]}?start=happy" target="_blank" rel="noopener">Send 🥂 to the bot</a> · <a href="https://t.me/{state["bot_username"]}?start=unhappy" target="_blank" rel="noopener">send 👎</a></p>' if state.get("bot_username") else ''}
   <div class="roomctl"><button type="button" id="callOrder">📣 Call to order</button>
     <button type="button" id="partyBtn" hidden>🎉 Replay party</button></div>
-  <p class="hint">Between votes the officers mingle and talk. When a vote is about a minute away they take their seats, and when a theory is proven they throw a party. Tap an officer to read their last vote. Drag to look around.</p>
+  <p class="hint">The officers work in their own offices and chat in the hallway. About a minute before a vote they walk to the conference room, vote one by one (YES/NO over their heads), and the Trade Vote screen shows the result. When a theory is proven they throw a party. Tap anyone to hear from them.</p>
   <script>(function(){{var msg=document.getElementById('moodmsg'),room=document.getElementById('room3d'),busy=0;
     var lines={{cheers:['🥂 Cheers, Commander! The council raises a glass.','🥂 To the next one!','🥂 Hooah! Drinks are on The Quant.'],
                sad:['😔 Understood, Commander. We’ll tighten up.','😔 Heard. Back to the drawing board.','😔 Noted. Discipline over hope.']}};
@@ -2335,948 +2385,492 @@ def council_room(state):
 ROOM_JS = r"""
 (function () {
   var D = __DATA__;
-  if (D.recess) D.verdict = null;          // court adjourned: everyone stays seated
   var room = document.getElementById('room3d'), stage = document.getElementById('stage3d'), tip = document.getElementById('tip3d');
   var stampEl = stage.querySelector('.stamp3d');
   if (!window.THREE) return;
   var renderer;
-  try { renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false }); } catch (e) { return; }
+  try { renderer = new THREE.WebGLRenderer({ antialias: true }); } catch (e) { return; }
   if (!renderer.getContext()) return;
   room.classList.add('is3d');
-  var still = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  var small = (stage.clientWidth || 360) < 520;
-  renderer.setPixelRatio(Math.min(small ? 1.75 : 2, window.devicePixelRatio || 1));
-  renderer.setClearColor(0x05060d, 1);
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   stage.insertBefore(renderer.domElement, stage.firstChild);
+  var KEY = D.key || 'vault';
+  var BOT = D.bot || 'Vault';
+  var sc = new THREE.Scene(); sc.background = new THREE.Color(0x0f1324);
+  var cam = new THREE.OrthographicCamera(-12, 12, 10, -10, 0.1, 200);
+  var hemi = new THREE.HemisphereLight(0xe6eeff, 0x40342a, 0.85); sc.add(hemi);
+  var sun = new THREE.DirectionalLight(0xfff1dc, 0.75); sun.position.set(-8, 30, 12); sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -16, right: 16, top: 16, bottom: -16 }); sc.add(sun);
+  function M(c, o) { return new THREE.MeshStandardMaterial(Object.assign({ color: c, roughness: 0.75, metalness: 0.04 }, o || {})); }
+  function box(w, h, d, m, x, y, z, p) { var b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); b.position.set(x, y, z); b.castShadow = b.receiveShadow = true; (p || sc).add(b); return b; }
+  function cyl(r1, r2, h, m, x, y, z, p, s) { var b = new THREE.Mesh(new THREE.CylinderGeometry(r1, r2, h, s || 18), m); b.position.set(x, y, z); b.castShadow = true; (p || sc).add(b); return b; }
+  function sph(r, m, x, y, z, p) { var b = new THREE.Mesh(new THREE.SphereGeometry(r, 18, 14), m); b.position.set(x, y, z); b.castShadow = true; (p || sc).add(b); return b; }
+  function canvasTex(w, h, draw) { var c = document.createElement('canvas'); c.width = w; c.height = h; var g = c.getContext('2d'); draw(g, w, h); var t = new THREE.CanvasTexture(c); t.anisotropy = 4; t.userData = { c: c, g: g, draw: draw }; return t; }
+  function plane(w, h, tex, x, y, z, rx, ry) { var m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tex })); m.position.set(x, y, z); m.rotation.set(rx || 0, ry || 0, 0); sc.add(m); return m; }
+  function font(g, s, w) { g.font = (w || 700) + ' ' + s + 'px system-ui,-apple-system,Segoe UI,sans-serif'; }
 
-  var scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0x05060d, 11, 24);
-  var cam = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
-  var world = new THREE.Group(); scene.add(world);
-
-  // ── lighting: dim room, hard key light with shadows, colored rims, glow from the holotable
-  scene.add(new THREE.HemisphereLight(0x8aa2ff, 0x140c24, 0.6)); scene.add(new THREE.AmbientLight(0x404a70, 0.35));
-  var key = new THREE.SpotLight(0xdcebff, 2.3, 28, 0.7, 0.5, 1.0);
-  key.position.set(-2.5, 9.5, 5.5); key.target.position.set(0, 0.5, -1.6);
-  key.castShadow = true; key.shadow.mapSize.set(small ? 1024 : 2048, small ? 1024 : 2048); key.shadow.bias = -0.0004;
-  key.shadow.camera.near = 3; key.shadow.camera.far = 22;
-  scene.add(key); scene.add(key.target);
-  var rimC = new THREE.DirectionalLight(0x22d3ee, 0.8); rimC.position.set(-6, 3, -6); scene.add(rimC);
-  var rimM = new THREE.DirectionalLight(0xc026d3, 0.65); rimM.position.set(6, 3, -5); scene.add(rimM);
-  var holoLight = new THREE.PointLight(0x38e1ff, 1.0, 7, 2); holoLight.position.set(0, 1.5, 1.0); scene.add(holoLight);
-  var verdictLight = new THREE.PointLight(0x53f0a6, 0, 12, 2); verdictLight.position.set(0, 3.5, 0.5); scene.add(verdictLight);
-
-  var METAL = new THREE.MeshStandardMaterial({ color: 0x2a2f45, metalness: 0.9, roughness: 0.28 });
-  var METAL2 = new THREE.MeshStandardMaterial({ color: 0x40465f, metalness: 0.85, roughness: 0.35 });
-  var STEEL = new THREE.MeshStandardMaterial({ color: 0x1a1f30, metalness: 0.8, roughness: 0.35 });
-  var GLASS = new THREE.MeshStandardMaterial({ color: 0x2a3b66, metalness: 0.1, roughness: 0.05, transparent: true, opacity: 0.28 });
-  function glowMat(c) { return new THREE.MeshBasicMaterial({ color: c }); }
-  function basic(c, o) { return new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: o === undefined ? 1 : o, depthWrite: false }); }
-  function addv(c, o) { return new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: o, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }); }
-  function M(g, m) { return new THREE.Mesh(g, m); }
-  function at(m, x, y, z) { m.position.set(x, y, z); world.add(m); return m; }
-  function shadowy(o, cast, recv) { o.traverse(function (k) { if (k.isMesh) { k.castShadow = cast; k.receiveShadow = recv; } }); return o; }
-
-  // soft glow sprite (fake bloom)
-  var GLOW = (function () {
-    var c = document.createElement('canvas'); c.width = c.height = 128; var x = c.getContext('2d');
-    var g = x.createRadialGradient(64, 64, 0, 64, 64, 64);
-    g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.25, 'rgba(255,255,255,0.55)'); g.addColorStop(1, 'rgba(255,255,255,0)');
-    x.fillStyle = g; x.fillRect(0, 0, 128, 128); return new THREE.CanvasTexture(c);
-  })();
-  function glow(color, size, opacity) {
-    var s = new THREE.Sprite(new THREE.SpriteMaterial({ map: GLOW, color: color, transparent: true, opacity: opacity || 0.8,
-      depthWrite: false, blending: THREE.AdditiveBlending }));
-    s.scale.set(size, size, 1); return s;
-  }
-
-  // ── floor: mirror underneath, translucent tech tiles on top
-  if (THREE.Reflector) {
-    var mirror = new THREE.Reflector(new THREE.PlaneGeometry(30, 30), {
-      textureWidth: Math.round((stage.clientWidth || 360) * (small ? 0.6 : 0.9)),
-      textureHeight: Math.round((stage.clientWidth || 360) * (small ? 0.45 : 0.6)), color: 0x6a7090 });
-    mirror.rotation.x = -Math.PI / 2; at(mirror, 0, -0.002, 0);
-  }
-  var tileTex = (function () {
-    var c = document.createElement('canvas'); c.width = c.height = 256; var x = c.getContext('2d');
-    x.fillStyle = 'rgba(10,12,24,0.86)'; x.fillRect(0, 0, 256, 256);
-    x.strokeStyle = 'rgba(56,225,255,0.18)'; x.lineWidth = 2; x.strokeRect(1, 1, 254, 254);
-    x.strokeStyle = 'rgba(56,225,255,0.07)'; x.lineWidth = 1; x.strokeRect(64, 64, 128, 128);
-    var t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(15, 15); return t;
-  })();
-  var tiles = M(new THREE.PlaneGeometry(30, 30), new THREE.MeshStandardMaterial({ map: tileTex, transparent: true, roughness: 0.4, metalness: 0.5,
-    opacity: THREE.Reflector ? 0.9 : 1 }));
-  tiles.rotation.x = -Math.PI / 2; tiles.receiveShadow = true; at(tiles, 0, 0, 0);
-
-  // ── curved data wall with a scrolling ticker
-  function dataWallTex() {
-    var c = document.createElement('canvas'); c.width = 1024; c.height = 256; var x = c.getContext('2d');
-    x.fillStyle = '#070a16'; x.fillRect(0, 0, 1024, 256);
-    for (var p = 0; p < 16; p++) {                       // little chart panels
-      var px = p * 64 + 4, py = 18 + (p % 2) * 112;
-      x.strokeStyle = 'rgba(56,225,255,0.25)'; x.strokeRect(px, py, 56, 96);
-      x.beginPath(); var v = 50 + (p * 13 % 30);
-      for (var i = 0; i < 12; i++) { v += Math.sin(p * 7 + i * 1.7) * 7; x.lineTo(px + 4 + i * 4.4, py + 20 + v * 0.8 % 70); }
-      x.strokeStyle = p % 3 ? 'rgba(56,225,255,0.7)' : 'rgba(192,38,211,0.7)'; x.lineWidth = 1.5; x.stroke();
-      x.fillStyle = 'rgba(160,190,255,0.45)'; x.font = '9px monospace'; x.fillText((1 + (p * 0.037)).toFixed(4), px + 4, py + 92);
-    }
-    var t = new THREE.CanvasTexture(c); t.wrapS = THREE.RepeatWrapping; t.repeat.set(-2, 1); return t;
-  }
-  var wallTex = dataWallTex();
-  var wall = M(new THREE.CylinderGeometry(9, 9, 5.2, 64, 1, true, Math.PI * 0.62, Math.PI * 0.76),
-    new THREE.MeshBasicMaterial({ map: wallTex, side: THREE.BackSide }));
-  at(wall, 0, 2.6, 1.5);
-  var tickerText = (D.ticker && D.ticker.length) ? D.ticker.map(function (t) {
-    return t.s + ' ' + t.p + ' ' + (t.c >= 0 ? '▲' : '▼') + Math.abs(t.c).toFixed(2) + '%'; }).join('     ') : (D.recess ? 'COURT ADJOURNED  ·  ' + D.recess.toUpperCase() : 'THE COUNCIL  ·  IN SESSION');
-  var tickCanvas = document.createElement('canvas'); tickCanvas.width = 2048; tickCanvas.height = 64;
-  (function () {
-    var x = tickCanvas.getContext('2d'); x.fillStyle = '#0b1022'; x.fillRect(0, 0, 2048, 64);
-    x.fillStyle = 'rgba(56,225,255,0.9)'; x.fillRect(0, 0, 2048, 2); x.fillRect(0, 62, 2048, 2);
-    x.font = '600 30px ui-monospace, Menlo, monospace'; x.textBaseline = 'middle';
-    var s = tickerText + '     ·     ', w = x.measureText(s).width, n = Math.max(1, Math.floor(2048 / w)), step = 2048 / n;
-    for (var rep = 0; rep < n; rep++) {
-      var pos = rep * step;
-      s.split(/(▲[\d.]+%|▼[\d.]+%)/).forEach(function (pt) { if (!pt) return; x.fillStyle = pt[0] === '▲' ? '#53f0a6' : pt[0] === '▼' ? '#ff6b7c' : '#cfe3ff';
-        x.fillText(pt, pos, 34); pos += x.measureText(pt).width; });
-    }
-  })();
-  var tickTex = new THREE.CanvasTexture(tickCanvas); tickTex.wrapS = THREE.RepeatWrapping; tickTex.repeat.set(-2, 1);
-  var ticker = M(new THREE.CylinderGeometry(8.9, 8.9, 0.42, 64, 1, true, Math.PI * 0.62, Math.PI * 0.76),
-    new THREE.MeshBasicMaterial({ map: tickTex, side: THREE.BackSide }));
-  at(ticker, 0, 4.45, 1.5);
-  // ceiling ring + pillars
-  var ring = M(new THREE.TorusGeometry(6.5, 0.05, 8, 96), addv(0x38e1ff, 0.6)); ring.rotation.x = Math.PI / 2; at(ring, 0, 6.2, -1.2);
-  [-1, 1].forEach(function (sd) {
-    for (var k = 0; k < 2; k++) {
-      var px = sd * (5.2 + k * 1.6), pz = -2.8 + k * 1.8;
-      at(shadowy(M(new THREE.BoxGeometry(0.35, 6.4, 0.35), STEEL), true, true), px, 3.2, pz);
-      at(M(new THREE.BoxGeometry(0.04, 5.8, 0.04), glowMat(sd < 0 ? 0x22d3ee : 0xc026d3)), px + (sd < 0 ? 0.19 : -0.19), 3.2, pz + 0.19);
-    }
-  });
-
-  // ── holotable at the center with the live chart hologram above it
-  var table = new THREE.Group(); table.position.set(0, 0, 1.0); table.scale.setScalar(0.78); world.add(table);
-  table.add(shadowy(M(new THREE.CylinderGeometry(1.15, 1.3, 0.12, 6), STEEL), true, true)).position.y = 0.86;
-  table.add(shadowy(M(new THREE.CylinderGeometry(0.5, 0.75, 0.8, 6), METAL2), true, true)).position.y = 0.4;
-  var rim = M(new THREE.TorusGeometry(1.17, 0.018, 6, 6), glowMat(0x38e1ff)); rim.rotation.x = Math.PI / 2; rim.rotation.z = Math.PI / 6; rim.position.y = 0.93; table.add(rim);
-  var lens = M(new THREE.CircleGeometry(0.85, 6), addv(0x38e1ff, 0.35)); lens.rotation.x = -Math.PI / 2; lens.position.y = 0.935; table.add(lens);
-  var beam = M(new THREE.CylinderGeometry(1.9, 0.7, 3.4, 6, 1, true), addv(0x38e1ff, 0.045)); beam.position.y = 2.6; table.add(beam);
-  table.add(glow(0x38e1ff, 2.6, 0.55)).position.y = 1.0;
-
-  function chartTexture() {
-    var W = 1024, H = 560, c = document.createElement('canvas'); c.width = W; c.height = H; var x = c.getContext('2d');
-    x.fillStyle = 'rgba(8,30,48,0.35)'; x.fillRect(0, 0, W, H);
-    x.strokeStyle = 'rgba(56,225,255,0.9)'; x.lineWidth = 4; x.strokeRect(6, 6, W - 12, H - 12);
-    for (var gy = 1; gy < 5; gy++) { x.strokeStyle = 'rgba(56,225,255,0.12)'; x.lineWidth = 1; x.beginPath(); x.moveTo(30, 90 + gy * 88); x.lineTo(W - 30, 90 + gy * 88); x.stroke(); }
-    x.fillStyle = '#cff6ff'; x.font = '700 46px ui-monospace, Menlo, monospace'; x.textBaseline = 'middle';
-    x.fillText(D.recess ? 'THE COUNCIL' : D.title ? String(D.title).slice(0, 34) : 'COURT IN RECESS', 34, 50);
-    var ch = D.chart;
-    if (D.recess) {
-      x.fillStyle = 'rgba(8,30,48,0.6)'; x.fillRect(12, 80, W - 24, H - 92);
-      x.fillStyle = '#f4c84a'; x.font = '800 64px ui-monospace, Menlo, monospace'; x.textAlign = 'center';
-      x.fillText('COURT ADJOURNED', W / 2, H / 2 - 10);
-      x.fillStyle = '#cff6ff'; x.font = '500 38px ui-monospace, Menlo, monospace'; x.fillText(String(D.recess), W / 2, H / 2 + 60);
-      x.textAlign = 'left';
-    } else if (ch && ch.closes && ch.closes.length > 2) {
-      var vals = ch.closes.slice(), lv = [ch.entry, ch.sl, ch.tp].filter(function (v) { return v != null; });
-      var lo = Math.min.apply(null, vals.concat(lv)), hi = Math.max.apply(null, vals.concat(lv)), pad = (hi - lo) * 0.08 || 1e-4;
-      lo -= pad; hi += pad;
-      var X = function (i) { return 40 + i / (vals.length - 1) * (W - 260); }, Y = function (v) { return 110 + (hi - v) / (hi - lo) * (H - 150); };
-      x.beginPath(); vals.forEach(function (v, i) { if (i) x.lineTo(X(i), Y(v)); else x.moveTo(X(i), Y(v)); });
-      x.lineTo(X(vals.length - 1), H - 30); x.lineTo(X(0), H - 30); x.closePath();
-      var gr = x.createLinearGradient(0, 110, 0, H); gr.addColorStop(0, 'rgba(56,225,255,0.35)'); gr.addColorStop(1, 'rgba(56,225,255,0)');
-      x.fillStyle = gr; x.fill();
-      x.beginPath(); vals.forEach(function (v, i) { if (i) x.lineTo(X(i), Y(v)); else x.moveTo(X(i), Y(v)); });
-      x.strokeStyle = '#7ff3ff'; x.lineWidth = 5; x.lineJoin = 'round'; x.stroke();
-      function level(v, col, name) {
-        if (v == null) return; x.setLineDash([16, 10]); x.strokeStyle = col; x.lineWidth = 3;
-        x.beginPath(); x.moveTo(40, Y(v)); x.lineTo(W - 220, Y(v)); x.stroke(); x.setLineDash([]);
-        x.fillStyle = col; x.font = '600 30px ui-monospace, Menlo, monospace'; x.fillText(name + ' ' + v.toFixed(ch.prec || 5), W - 212, Y(v));
-      }
-      level(ch.tp, '#53f0a6', 'TP'); level(ch.entry, '#ffffff', 'IN'); level(ch.sl, '#ff6b7c', 'SL');
-    } else {
-      x.fillStyle = 'rgba(207,246,255,0.7)'; x.font = '500 34px ui-monospace, Menlo, monospace';
-      x.fillText(D.title ? 'live chart appears with the next vote' : 'waiting for a setup…', 34, H / 2 + 20);
-    }
-    return new THREE.CanvasTexture(c);
-  }
-  var holo = new THREE.Group(); holo.position.set(0, 3.7, 0.6); world.add(holo);
-  var holoMat = new THREE.MeshBasicMaterial({ map: chartTexture(), transparent: true, opacity: 0.95, depthWrite: false,
-    blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
-  var holoPlane = M(new THREE.PlaneGeometry(3.0, 1.64), holoMat); holo.add(holoPlane);
-  var scan = M(new THREE.PlaneGeometry(3.0, 0.03), addv(0x9ff8ff, 0.5)); scan.position.z = 0.01; holo.add(scan);
-
-  // ── The Chair's raised dais at the back
-  var dais = at(shadowy(M(new THREE.CylinderGeometry(1.6, 1.9, 0.8, 8), STEEL), true, true), 0, 0.4, -5.9);
-  var daisRim = M(new THREE.TorusGeometry(1.62, 0.03, 6, 8), glowMat(0xf4c84a)); daisRim.rotation.x = Math.PI / 2; at(daisRim, 0, 0.81, -5.9);
-  var bench = at(shadowy(M(new THREE.BoxGeometry(2.6, 1.0, 0.5), STEEL), true, true), 0, 1.3, -5.05);
-  at(M(new THREE.BoxGeometry(2.62, 0.05, 0.05), glowMat(0xf4c84a)), 0, 1.78, -4.79);
-  var plateC = document.createElement('canvas'); plateC.width = 512; plateC.height = 64;
-  (function () { var x = plateC.getContext('2d'); x.fillStyle = '#0b0e1c'; x.fillRect(0, 0, 512, 64);
-    x.fillStyle = '#f4c84a'; x.font = '700 30px ui-monospace, Menlo, monospace'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('THE CHAIR', 256, 33); })();
-  at(M(new THREE.PlaneGeometry(1.3, 0.16), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(plateC) })), 0, 1.45, -4.79);
-
-  var judge = new THREE.Group(); judge.position.set(0, 0.8, -5.75); world.add(judge);
-  var ROBE = new THREE.MeshStandardMaterial({ color: 0x1b2433, roughness: 0.7, metalness: 0.1 });
-  judge.add(shadowy(M(new THREE.ConeGeometry(0.46, 1.6, 24), ROBE), true, false)).position.y = 1.0;
-  var trim = M(new THREE.TorusGeometry(0.2, 0.025, 8, 24), glowMat(0xf4c84a)); trim.rotation.x = Math.PI / 2; trim.position.y = 1.72; judge.add(trim);
-  var jhead = new THREE.Group(); jhead.position.y = 1.96; judge.add(jhead);
-  var JSKIN = new THREE.MeshStandardMaterial({ color: 0xa86b45, roughness: 0.65 });
-  jhead.add(shadowy(M(new THREE.SphereGeometry(0.24, 24, 16), JSKIN), true, false));
-  [-1, 1].forEach(function (sd) { var e = M(new THREE.SphereGeometry(0.03, 8, 6), new THREE.MeshBasicMaterial({ color: 0x111111 })); e.position.set(sd * 0.085, 0.02, 0.215); jhead.add(e);
-    var br = M(new THREE.BoxGeometry(0.1, 0.025, 0.02), new THREE.MeshStandardMaterial({ color: 0xdddddd })); br.position.set(sd * 0.085, 0.09, 0.22); jhead.add(br); });
-  var jcap = M(new THREE.CylinderGeometry(0.28, 0.23, 0.13, 28), new THREE.MeshStandardMaterial({ color: 0x1b2433, roughness: 0.6 })); jcap.position.y = 0.21; jhead.add(jcap);
-  var braid = M(new THREE.CylinderGeometry(0.235, 0.235, 0.05, 28), new THREE.MeshStandardMaterial({ color: 0xd9b44a, metalness: 0.85, roughness: 0.3 })); braid.position.y = 0.16; jhead.add(braid);
-  var jpeak = M(new THREE.CylinderGeometry(0.18, 0.18, 0.015, 24, 1, false, -Math.PI / 2, Math.PI), new THREE.MeshStandardMaterial({ color: 0x0b0b0e })); jpeak.position.set(0, 0.14, 0.13); jpeak.rotation.x = 0.25; jhead.add(jpeak);
-  var halo = new THREE.Group(); jhead.add(halo);
-  [-1, 1].forEach(function (sd) { for (var k = 0; k < 4; k++) { var star = M(new THREE.OctahedronGeometry(0.025, 0), new THREE.MeshBasicMaterial({ color: 0xf4c84a }));
-    star.position.set(sd * (0.36 + k * 0.0) , 1.62 + 0, 0.05 - k * 0.06); judge.add(star); } });
-  var arm = new THREE.Group(); arm.position.set(0.32, 1.55, 0.12); judge.add(arm);
-  var fore = M(new THREE.CylinderGeometry(0.05, 0.045, 0.5, 10), ROBE); fore.rotation.x = Math.PI / 2; fore.position.z = 0.25; arm.add(fore);
-  var gavel = new THREE.Group(); gavel.position.set(0, 0, 0.5); arm.add(gavel);
-  var gh = M(new THREE.CylinderGeometry(0.02, 0.02, 0.42, 8), METAL2); gh.rotation.x = Math.PI / 2; gh.position.z = 0.15; gavel.add(gh);
-  var ghead = M(new THREE.CylinderGeometry(0.075, 0.075, 0.24, 16), glowMat(0xf4c84a)); ghead.rotation.z = Math.PI / 2; ghead.position.z = 0.36; gavel.add(ghead);
-  var gglow = glow(0xf4c84a, 0.5, 0.0); gglow.position.z = 0.36; gavel.add(gglow);
-
-  // ── atmosphere: light shafts and drifting dust
-  [[-3.0, -2.3], [0, -3.4], [3.0, -2.3], [0, 1.0]].forEach(function (p, i) {
-    var shaft = M(new THREE.CylinderGeometry(0.15, i === 3 ? 1.5 : 0.95, 6.2, 24, 1, true), addv(i === 3 ? 0x38e1ff : 0xbfd4ff, i === 3 ? 0.035 : 0.045));
-    at(shaft, p[0], 3.1, p[1]);
-  });
-  var dustN = small ? 220 : 380, dustG = new THREE.BufferGeometry(), dp = new Float32Array(dustN * 3);
-  for (var di = 0; di < dustN; di++) { dp[di * 3] = (Math.random() - 0.5) * 9; dp[di * 3 + 1] = Math.random() * 5.5; dp[di * 3 + 2] = (Math.random() - 0.7) * 7; }
-  dustG.setAttribute('position', new THREE.BufferAttribute(dp, 3));
-  var dust = new THREE.Points(dustG, new THREE.PointsMaterial({ color: 0xbfe9ff, size: 0.035, transparent: true, opacity: 0.55,
-    depthWrite: false, blending: THREE.AdditiveBlending }));
-  world.add(dust);
-
-  // ── the council as little military officers: big heads, uniforms, unique headgear and insignia
-  var COLORS = { 'The Quant': 0x3ee6a1, 'Risk': 0xff5468, 'Momentum': 0xffb03b, 'Time': 0x4cb7ff, 'Doubt': 0xc9a7ff };
-  function std(c, r, m) { return new THREE.MeshStandardMaterial({ color: c, roughness: r === undefined ? 0.75 : r, metalness: m || 0 }); }
-  var BOOT = std(0x15130f, 0.45, 0.2), GOLD = std(0xd9b44a, 0.3, 0.85), BLACK = std(0x0b0b0e, 0.6), WHITE = std(0xf2f2ee, 0.5);
-  var EYE = new THREE.MeshBasicMaterial({ color: 0x111111 });
-  function bar(parent, w, h, x, y, z, rz, mat) { var b = M(new THREE.BoxGeometry(w, h, 0.03), mat); b.position.set(x, y, z); b.rotation.z = rz || 0; parent.add(b); return b; }
-  // two-part limb: shoulder/hip → elbow/knee → hand/boot
-  function limb(g, x, y, len, r, mat, endMat) {
-    var piv = new THREE.Group(); piv.position.set(x, y, 0);
-    var half = len / 2, leg = y < 1.0;
-    var up = M(new THREE.CylinderGeometry(r * 1.08, r * 0.95, half, 12), mat); up.position.y = -half / 2; piv.add(up);
-    var joint = new THREE.Group(); joint.position.y = -half; piv.add(joint);
-    joint.add(M(new THREE.SphereGeometry(r * 1.0, 10, 8), mat));
-    var lo = M(new THREE.CylinderGeometry(r * 0.95, r * 0.85, half, 12), leg ? BOOT : mat); lo.position.y = -half / 2; joint.add(lo);
-    if (leg) { var boot = M(new THREE.BoxGeometry(r * 2.3, r * 1.3, r * 3.8), BOOT); boot.position.set(0, -half - r * 0.25, r * 0.9); joint.add(boot); }
-    else { var hand = M(new THREE.SphereGeometry(r * 1.15, 10, 8), endMat); hand.position.y = -half - r * 0.3; joint.add(hand); }
-    piv.userData.joint = joint;
-    g.add(piv); return piv;
-  }
-  // shared body: boots, trousers, tunic, belt, collar, big head with eyes/brows/mouth
-  function soldier(g, u, o) {
-    var TUNIC = std(o.tunic, 0.8), PANTS = std(o.pants || o.tunic, 0.8), SKIN = std(o.skin, 0.65);
-    var w = o.wide || 1;
-    u.legL = limb(g, -0.1 * w, 0.62, 0.6, 0.065 * w, PANTS); u.legR = limb(g, 0.1 * w, 0.62, 0.6, 0.065 * w, PANTS);
-    var torso = M(new THREE.BoxGeometry(0.44 * w, 0.58, 0.28 * Math.max(1, w * 0.9)), TUNIC); torso.position.y = 0.93; g.add(torso);
-    var belly = M(new THREE.BoxGeometry(0.46 * w, 0.08, 0.3 * Math.max(1, w * 0.9)), BLACK); belly.position.y = 0.72; g.add(belly);
-    var buckle = M(new THREE.BoxGeometry(0.07, 0.06, 0.02), GOLD); buckle.position.set(0, 0.72, 0.16 * Math.max(1, w * 0.9)); g.add(buckle);
-    for (var b = 0; b < 3; b++) { var btn = M(new THREE.SphereGeometry(0.018, 8, 6), GOLD); btn.position.set(0, 0.84 + b * 0.1, 0.145 * Math.max(1, w * 0.9)); g.add(btn); }
-    [-1, 1].forEach(function (sd) {                                   // epaulettes
-      var ep = M(new THREE.BoxGeometry(0.13, 0.03, 0.2), o.epaulette ? GOLD : TUNIC); ep.position.set(sd * 0.2 * w, 1.23, 0); g.add(ep);
-    });
-    var badge = M(new THREE.BoxGeometry(0.08, 0.06, 0.02), new THREE.MeshBasicMaterial({ color: u.col }));   // unit patch in their color
-    badge.position.set(-0.12 * w, 1.06, 0.145 * Math.max(1, w * 0.9)); g.add(badge); u.patch = badge;
-    if (o.medals) for (var m = 0; m < o.medals; m++) {
-      var md = M(new THREE.BoxGeometry(0.035, 0.05, 0.02), [GOLD, std(0xb03a2e), std(0x2e5cb0)][m % 3]);
-      md.position.set(0.07 * w + m * 0.045, 1.07, 0.145 * Math.max(1, w * 0.9)); g.add(md);
-    }
-    u.armL = limb(g, -0.27 * w, 1.2, 0.56, 0.055 * w, TUNIC, SKIN); u.armR = limb(g, 0.27 * w, 1.2, 0.56, 0.055 * w, TUNIC, SKIN);
-    var neck = M(new THREE.CylinderGeometry(0.07, 0.08, 0.08, 12), SKIN); neck.position.y = 1.27; g.add(neck);
-    var head = new THREE.Group(); head.position.y = 1.5; g.add(head); u.head = head;
-    var skull = M(new THREE.SphereGeometry(0.235, 28, 20), SKIN); skull.scale.set(1, 1.05, 0.98); head.add(skull);
-    [-1, 1].forEach(function (sd) { var ear = M(new THREE.SphereGeometry(0.05, 10, 8), SKIN); ear.position.set(sd * 0.235, 0, 0); ear.scale.set(0.5, 1, 0.8); head.add(ear); });
-    u.glows = [];
-    [-1, 1].forEach(function (sd) {
-      var e = M(new THREE.SphereGeometry(0.03, 10, 8), EYE); e.position.set(sd * 0.085, 0.02, 0.215); head.add(e); u.glows.push(e);
-      var br = bar(head, 0.09, 0.022, sd * 0.085, 0.09 + (o.browUp && sd > 0 ? 0.03 : 0), 0.22, sd * (o.browTilt || 0), BLACK);
-    });
-    var mouth = M(new THREE.BoxGeometry(o.mouthW || 0.08, 0.018, 0.02), std(0x5a2a22)); mouth.position.set(o.mouthX || 0, -0.1, 0.22); mouth.rotation.z = o.mouthTilt || 0; head.add(mouth); u.mouth = mouth;
-    var nose = M(new THREE.SphereGeometry(0.028, 8, 6), SKIN); nose.position.set(0, -0.03, 0.235); head.add(nose);
-    return { head: head, TUNIC: TUNIC, SKIN: SKIN };
-  }
-  var BUILD = {
-    // intelligence officer: olive uniform, beret, round glasses, tablet
-    'The Quant': function (g, u, col) {
-      var s = soldier(g, u, { tunic: 0x4b5a3a, skin: 0xe0ac69, medals: 1 }), h = s.head;
-      var beret = M(new THREE.SphereGeometry(0.25, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), std(0x1f5e3a)); beret.scale.set(1.05, 0.45, 1.05);
-      beret.position.set(0.03, 0.12, -0.01); beret.rotation.z = -0.25; h.add(beret);
-      var flash = M(new THREE.BoxGeometry(0.05, 0.05, 0.02), GOLD); flash.position.set(-0.11, 0.18, 0.18); h.add(flash);
-      [-1, 1].forEach(function (sd) { var lens = M(new THREE.TorusGeometry(0.05, 0.008, 6, 20), BLACK); lens.position.set(sd * 0.085, 0.02, 0.23); h.add(lens); });
-      var tab = M(new THREE.BoxGeometry(0.2, 0.26, 0.02), BLACK); tab.position.set(0, -0.06, 0.08); tab.rotation.x = -0.8;
-      var scr = M(new THREE.PlaneGeometry(0.17, 0.22), new THREE.MeshBasicMaterial({ color: col })); scr.position.z = 0.012; tab.add(scr);
-      u.armL.userData.joint.add(tab);
-    },
-    // military police / drill sergeant: broad, campaign hat, red armband, scowl
-    'Risk': function (g, u, col) {
-      var s = soldier(g, u, { tunic: 0x6b5a3e, pants: 0x4a3f2c, skin: 0x8d5524, wide: 1.22, browTilt: 0.35, mouthW: 0.1, medals: 2 }), h = s.head;
-      var brim = M(new THREE.CylinderGeometry(0.4, 0.4, 0.02, 32), std(0x8a6a3a)); brim.position.y = 0.14; h.add(brim);
-      var crown = M(new THREE.ConeGeometry(0.2, 0.22, 4), std(0x8a6a3a)); crown.position.y = 0.26; crown.rotation.y = Math.PI / 4; h.add(crown);
-      var band = M(new THREE.CylinderGeometry(0.21, 0.21, 0.04, 20), BLACK); band.position.y = 0.17; h.add(band);
-      var arm = M(new THREE.CylinderGeometry(0.075, 0.075, 0.1, 12), new THREE.MeshStandardMaterial({ color: 0xc0262e, roughness: 0.7 }));
-      arm.position.y = -0.1; u.armL.add(arm);
-      var mp = M(new THREE.BoxGeometry(0.05, 0.04, 0.005), WHITE); mp.position.set(0, -0.1, 0.078); u.armL.add(mp);
-      var whistle = M(new THREE.CylinderGeometry(0.012, 0.012, 0.05, 8), GOLD); whistle.position.set(0.1, 1.12, 0.17); whistle.rotation.z = 1.2; g.add(whistle);
-    },
-    // paratrooper: lean, helmet with goggles, forward-leaning, speed lines when walking
-    'Momentum': function (g, u, col) {
-      var s = soldier(g, u, { tunic: 0x5a4a32, pants: 0x4d4030, skin: 0xc68642, mouthW: 0.1, mouthTilt: -0.15, browUp: true }), h = s.head;
-      var helm = M(new THREE.SphereGeometry(0.27, 24, 14, 0, Math.PI * 2, 0, Math.PI / 2), std(0x4f5a34, 0.85)); helm.position.y = 0.04; h.add(helm);
-      var rim = M(new THREE.TorusGeometry(0.27, 0.02, 6, 32), std(0x4f5a34, 0.85)); rim.rotation.x = Math.PI / 2; rim.position.y = 0.04; h.add(rim);
-      var strap = M(new THREE.BoxGeometry(0.5, 0.035, 0.02), BLACK); strap.position.set(0, 0.17, 0.2); h.add(strap);
-      [-1, 1].forEach(function (sd) { var gg = M(new THREE.CylinderGeometry(0.055, 0.055, 0.04, 16), new THREE.MeshBasicMaterial({ color: col })); gg.rotation.x = Math.PI / 2; gg.position.set(sd * 0.08, 0.17, 0.22); h.add(gg); });
-      var pack = M(new THREE.BoxGeometry(0.34, 0.4, 0.14), std(0x3d4529)); pack.position.set(0, 0.95, -0.21); g.add(pack);
-      u.trail = [];
-      for (var i = 0; i < 4; i++) { var tp = M(new THREE.SphereGeometry(0.045 - i * 0.008, 8, 6), basic(col, 0.7 - i * 0.15)); world.add(tp); u.trail.push(tp); }
-    },
-    // navy officer / timekeeper: white peaked cap, navy tunic, glowing wristwatch, stout
-    'Time': function (g, u, col) {
-      var s = soldier(g, u, { tunic: 0x1c2a4a, skin: 0xf1c27d, wide: 1.12, epaulette: true, medals: 2 }), h = s.head;
-      var cap = M(new THREE.CylinderGeometry(0.26, 0.22, 0.12, 28), WHITE); cap.position.y = 0.2; h.add(cap);
-      var band = M(new THREE.CylinderGeometry(0.225, 0.225, 0.05, 28), BLACK); band.position.y = 0.15; h.add(band);
-      var peak = M(new THREE.CylinderGeometry(0.17, 0.17, 0.015, 24, 1, false, -Math.PI / 2, Math.PI), BLACK); peak.position.set(0, 0.13, 0.12); peak.rotation.x = 0.25; h.add(peak);
-      var crest = M(new THREE.SphereGeometry(0.035, 10, 8), GOLD); crest.position.set(0, 0.17, 0.225); h.add(crest);
-      var watch = M(new THREE.CylinderGeometry(0.06, 0.06, 0.03, 16), new THREE.MeshBasicMaterial({ color: col })); watch.rotation.z = Math.PI / 2;
-      watch.position.set(0.06, -0.2, 0); u.armL.userData.joint.add(watch);
-      var hands = new THREE.Group(); hands.position.set(0.078, -0.2, 0); hands.rotation.y = Math.PI / 2; u.armL.userData.joint.add(hands); u.hands = hands;
-      bar(hands, 0.008, 0.045, 0, 0.02, 0, 0, BLACK);
-    },
-    // grizzled colonel: garrison cap tilted, grey mustache, monocle, lots of medals
-    'Doubt': function (g, u, col) {
-      var s = soldier(g, u, { tunic: 0x3a3f4a, skin: 0x5c3a21, medals: 4, browUp: true, mouthX: 0.03, mouthTilt: -0.2, epaulette: true }), h = s.head;
-      var cap = M(new THREE.BoxGeometry(0.3, 0.1, 0.4), std(0x2c313b)); cap.position.set(0.04, 0.24, 0); cap.rotation.z = -0.3; h.add(cap);
-      var pip = M(new THREE.BoxGeometry(0.04, 0.04, 0.02), GOLD); pip.position.set(-0.08, 0.27, 0.19); h.add(pip);
-      var stache = M(new THREE.BoxGeometry(0.16, 0.035, 0.04), std(0x9a9a9a)); stache.position.set(0, -0.065, 0.225); h.add(stache);
-      var mono = M(new THREE.TorusGeometry(0.05, 0.01, 6, 20), GOLD); mono.position.set(0.085, 0.02, 0.235); h.add(mono);
-      var chain = M(new THREE.CylinderGeometry(0.004, 0.004, 0.25, 4), GOLD); chain.position.set(0.12, -0.1, 0.22); chain.rotation.z = 0.3; h.add(chain);
-      head_tilt = h; h.rotation.z = 0.12;
-    }
+  // ── the cast: fresh business-casual looks
+  var LOOK = {
+    'The Quant':    { c: '#3ee6a1', skin: 0x8d5a3b, top: 0x1f3a5f, under: 0xffffff, pants: 0x2e3440, hair: 0x15100c, style: 'short', glasses: 1, tie: 0x3ee6a1,
+                      lines: ['Running the numbers again.', 'ADX says trend. I listen to ADX.', 'Data over feelings, always.', 'Three backtests agree. I like that.'] },
+    'Risk':         { c: '#ff5468', skin: 0xe0b18f, top: 0x4a4f63, under: 0xf3e9dc, pants: 0x24262e, hair: 0x6b3f22, style: 'bun', scarf: 0xff5468,
+                      lines: ['Where is the stop? Always ask where the stop is.', 'Protect the bankroll first.', 'Small size, long life.', 'No trade is also a position.'] },
+    'Momentum':     { c: '#ffb03b', skin: 0x5c3a21, top: 0xffb03b, under: 0x2b2b2b, pants: 0x3b3f4a, hair: 0x0c0c0c, style: 'fade', sneakers: 1, cardigan: 1,
+                      lines: ['I can feel a move coming.', 'MACD is warming up!', 'Trend is your friend, let’s ride it.', 'Who’s ready? I’m ready.'] },
+    'Time':         { c: '#4cb7ff', skin: 0xf1c9a5, top: 0x6e4b8b, under: 0xf6efe4, pants: 0x2b2f3a, hair: 0xd1a24f, style: 'long',
+                      lines: ['Right setup, wrong hour is still wrong.', 'London and New York overlap is where the action is.', 'Patience. The clock matters.', 'Too stretched. Let it come back to us.'] },
+    'Doubt':        { c: '#c9a7ff', skin: 0xc68642, top: 0x2a2f3a, under: 0xc9a7ff, pants: 0x3a3a3a, hair: 0x2b1d14, style: 'curly', glasses: 1, vest: 1,
+                      lines: ['Convince me.', 'I’ve seen this fake-out before.', 'What does the bigger chart say?', 'Somebody has to ask the hard question.'] },
+    'The Reporter': { c: '#f472b6', skin: 0xa86b45, top: 0x8a6a4a, under: 0xffffff, pants: 0x2a2a2a, hair: 0x1b1410, style: 'ponytail', badge: 1,
+                      lines: ['Checking the earnings calendar.', 'Headlines are quiet… too quiet.', 'StockTwits crowd is loud today.', 'Breaking: nothing breaking. Yet.'] },
+    'The Chair':    { c: '#f4c84a', skin: 0x7a4a2c, top: 0x111827, under: 0xffffff, pants: 0x111827, hair: 0x222222, style: 'bun', tie: 0xf4c84a,
+                      lines: ['Let’s keep it disciplined, team.', 'One good trade beats ten rushed ones.', 'Remember the rules: analyze, discuss, vote.', 'Coffee’s fresh. Charts are fresher.'] }
   };
-  var head_tilt;
-  function agent(name) {
-    var col = COLORS[name] || 0xffffff, g = new THREE.Group(), u = g.userData;
-    u.col = col;
-    (BUILD[name] || BUILD['Doubt'])(g, u, col);
-    var halo = M(new THREE.RingGeometry(0.34, 0.42, 40), basic(col, 0.45)); halo.rotation.x = -Math.PI / 2; halo.position.y = 0.02; g.add(halo); u.halo = halo;
+  var CREW = D.voters.map(function (v) { return v.name; }).concat(['The Chair']);
+  var N = D.voters.length;
+
+  function person(L) {
+    var g = new THREE.Group(), skin = M(L.skin), top = M(L.top), under = M(L.under), pants = M(L.pants), shoe = M(L.sneakers ? 0xf2f2f2 : 0x1b1b1b);
+    var body = new THREE.Group(); g.add(body);
+    var hips = new THREE.Group(); hips.position.y = 0.92; body.add(hips);
+    var legs = [];
+    [-0.14, 0.14].forEach(function (x) {
+      var leg = new THREE.Group(); leg.position.set(x, 0, 0); hips.add(leg);
+      cyl(0.11, 0.1, 0.5, pants, 0, -0.25, 0, leg);
+      var knee = new THREE.Group(); knee.position.y = -0.5; leg.add(knee);
+      cyl(0.095, 0.085, 0.42, pants, 0, -0.21, 0, knee);
+      box(0.18, 0.09, 0.3, shoe, 0, -0.44, 0.06, knee);
+      legs.push({ leg: leg, knee: knee });
+    });
+    var torso = new THREE.Group(); torso.position.y = 0.92; body.add(torso);
+    cyl(0.3, 0.27, 0.7, (L.vest || L.cardigan) ? under : top, 0, 0.36, 0, torso);
+    if (L.vest || L.cardigan) { var v = cyl(0.31, 0.28, 0.6, top, 0, 0.33, 0, torso); v.scale.z = 1.02; box(0.12, 0.55, 0.05, under, 0, 0.36, 0.29, torso); }
+    else box(0.16, 0.42, 0.05, under, 0, 0.45, 0.27, torso);
+    sph(0.3, (L.vest || L.cardigan) ? under : top, 0, 0.7, 0, torso).scale.y = 0.55;
+    if (L.tie) box(0.07, 0.36, 0.04, M(L.tie), 0, 0.48, 0.3, torso);
+    if (L.scarf) { var s_ = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.05, 8, 18), M(L.scarf)); s_.rotation.x = Math.PI / 2; s_.position.y = 0.8; torso.add(s_); }
+    if (L.badge) { box(0.12, 0.16, 0.02, M(0xffffff), 0.14, 0.42, 0.3, torso); box(0.02, 0.32, 0.02, M(0xf472b6), 0.1, 0.62, 0.29, torso); }
+    var arms = [];
+    [-1, 1].forEach(function (s) {
+      var sh = new THREE.Group(); sh.position.set(s * 0.37, 0.68, 0); torso.add(sh);
+      cyl(0.085, 0.08, 0.4, top, 0, -0.2, 0, sh);
+      var el = new THREE.Group(); el.position.y = -0.4; sh.add(el);
+      cyl(0.075, 0.07, 0.36, top, 0, -0.18, 0, el);
+      sph(0.085, skin, 0, -0.4, 0, el);
+      arms.push({ sh: sh, el: el, s: s });
+    });
+    cyl(0.09, 0.1, 0.12, skin, 0, 0.82, 0, torso);
+    var head = new THREE.Group(); head.position.y = 1.07; torso.add(head);
+    var hm = sph(0.24, skin, 0, 0, 0, head); hm.scale.set(0.95, 1.06, 1);
+    var eyeM = M(0x101010);
+    [-0.085, 0.085].forEach(function (x) { sph(0.03, eyeM, x, 0.03, 0.215, head); });
+    var smile = new THREE.Mesh(new THREE.TorusGeometry(0.055, 0.013, 6, 12, Math.PI), M(0x5a2a1a)); smile.rotation.z = Math.PI; smile.position.set(0, -0.08, 0.22); head.add(smile);
+    var hair = M(L.hair);
+    if (L.style === 'short' || L.style === 'fade') { var h1 = new THREE.Mesh(new THREE.SphereGeometry(L.style === 'fade' ? 0.245 : 0.25, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2.3), hair); h1.position.y = 0.05; head.add(h1); }
+    else if (L.style === 'curly') { for (var k = 0; k < 9; k++) { var a = k / 9 * Math.PI * 2; sph(0.1, hair, Math.cos(a) * 0.17, 0.16 + (k % 2) * 0.03, Math.sin(a) * 0.15 - 0.02, head); } sph(0.16, hair, 0, 0.2, 0, head); }
+    else if (L.style === 'bun') { var h2 = new THREE.Mesh(new THREE.SphereGeometry(0.25, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2.1), hair); h2.position.y = 0.03; head.add(h2); sph(0.11, hair, 0, 0.2, -0.14, head); }
+    else if (L.style === 'ponytail') { var h3 = new THREE.Mesh(new THREE.SphereGeometry(0.25, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2.1), hair); h3.position.y = 0.03; head.add(h3); var pt = cyl(0.06, 0.03, 0.34, hair, 0, -0.08, -0.26, head); pt.rotation.x = 0.4; }
+    else { var h4 = new THREE.Mesh(new THREE.SphereGeometry(0.255, 18, 12, 0, Math.PI * 2, 0, Math.PI / 1.8), hair); h4.position.y = 0.02; head.add(h4); box(0.46, 0.4, 0.12, hair, 0, -0.14, -0.14, head); }
+    if (L.glasses) { var gm = M(0x111111); [-0.085, 0.085].forEach(function (x) { var r_ = new THREE.Mesh(new THREE.TorusGeometry(0.055, 0.012, 6, 16), gm); r_.position.set(x, 0.03, 0.225); head.add(r_); }); }
+    g.userData = { legs: legs, arms: arms, torso: torso, hips: hips, head: head, body: body };
+    g.scale.setScalar(1.4);
     return g;
   }
+  function pose(g, sit, walk, t, extra) {
+    var u = g.userData, s = Math.sin(t * 9) * walk;
+    u.legs.forEach(function (l, i) {
+      var sg = i ? -s : s;
+      l.leg.rotation.x = -sit * 1.45 + sg * 0.6;
+      l.knee.rotation.x = sit * 1.45 + Math.max(0, -sg) * 0.6;
+    });
+    var dropY = sit * 0.42;
+    u.hips.position.y = 0.92 - dropY; u.torso.position.y = 0.92 - dropY;
+    u.arms.forEach(function (a, i) {
+      var sg = i ? -s : s;
+      a.sh.rotation.x = sg * 0.6 - sit * 0.55; a.el.rotation.x = -sit * 0.7; a.sh.rotation.z = a.s * 0.06;
+    });
+    if (extra === 'cheer') u.arms.forEach(function (a) { a.sh.rotation.z = a.s * 2.6; a.sh.rotation.x = 0; a.el.rotation.x = 0; });
+    if (extra === 'shrug') u.arms.forEach(function (a) { a.sh.rotation.z = a.s * 0.7; a.el.rotation.x = -1.2; });
+    if (extra === 'type') u.arms.forEach(function (a, i) { a.sh.rotation.x = -0.9; a.el.rotation.x = -0.6 + Math.sin(t * 14 + i * 2) * 0.12; });
+    if (extra === 'talk') u.arms.forEach(function (a, i) { if (i) { a.sh.rotation.x = -0.6 + Math.sin(t * 5) * 0.3; a.el.rotation.x = -0.9; } });
+    u.head.rotation.x = extra === 'sad' ? 0.45 : 0;
+  }
 
-  // ── member stations in an arc behind the holotable
-  var people = [], signs = [], rings = [], N = D.voters.length;
-  var SPEAK = new THREE.Vector3(1.75, 0, 2.55);
-  function seatPos(i) {
-    var a = (200 + i * (140 / Math.max(1, N - 1))) * Math.PI / 180;
-    return new THREE.Vector3(Math.cos(a) * 3.5, 0, Math.sin(a) * 2.0 - 1.45);
+  // ── the building
+  var X0 = -11.5, X1 = 11.5, BLOCK_TOP = -11.5, HALL_A = -7.2, HALL_B = -4.8, BLOCK_BOT = -0.8, CONF_BOT = 9.2;
+  var carpet = M(0x4a5170, { roughness: 0.95 }), hallF = M(0x6d7488), wood = M(0x8a6a4a, { roughness: 0.55 }), navy = M(0x1f2a4a), wallC = M(0xdcd9d2), partM = M(0x2c3a63), trim = M(0xb08a5a);
+  box(X1 - X0, 0.1, BLOCK_BOT - BLOCK_TOP, hallF, 0, -0.05, (BLOCK_TOP + BLOCK_BOT) / 2);
+  box(X1 - X0, 0.1, CONF_BOT - BLOCK_BOT, M(0x1c2440, { roughness: 0.95 }), 0, -0.05, (BLOCK_BOT + CONF_BOT) / 2);
+  // outer walls
+  box(X1 - X0 + 0.3, 1.2, 0.25, navy, 0, 0.6, BLOCK_TOP);
+  box(0.25, 1.2, CONF_BOT - BLOCK_TOP, navy, X0, 0.6, (BLOCK_TOP + CONF_BOT) / 2);
+  box(0.25, 1.2, CONF_BOT - BLOCK_TOP, navy, X1, 0.6, (BLOCK_TOP + CONF_BOT) / 2);
+  box(X1 - X0 + 0.3, 1.2, 0.25, navy, 0, 0.6, CONF_BOT);
+  // wall between offices and conference room, with a door at the right
+  var DOOR_X = 9.9;
+  box(DOOR_X - 0.9 - X0, 1.2, 0.25, navy, (X0 + DOOR_X - 0.9) / 2, 0.6, BLOCK_BOT);
+  box(X1 - (DOOR_X + 0.9), 1.2, 0.25, navy, (X1 + DOOR_X + 0.9) / 2, 0.6, BLOCK_BOT);
+  // windows on the left
+  for (var wz = -10.5; wz < -1.5; wz += 2.2) box(0.08, 0.9, 1.7, M(0x8fb7e6, { emissive: 0x3a6ea8, emissiveIntensity: 0.6 }), X0 + 0.14, 0.7, wz);
+  // lobby (left) with the Chair's desk
+  var LOBBY_X = -6.6;
+  box(X0 + 0.2 - LOBBY_X, 0.02, 4.2, M(0x55607f), (X0 + LOBBY_X) / 2, 0.01, -2.9);
+  box(2.6, 0.75, 0.9, wood, -9.0, 0.38, -9.7);
+  var signTex = canvasTex(512, 160, function (g, w, h) { g.fillStyle = '#16204a'; g.fillRect(0, 0, w, h); g.strokeStyle = '#f4c84a'; g.lineWidth = 6; g.strokeRect(6, 6, w - 12, h - 12);
+    font(g, 34, 800); g.fillStyle = '#f4c84a'; g.fillText('📈 ' + BOT.toUpperCase(), 28, 66); font(g, 46, 900); g.fillStyle = '#fff'; g.fillText('TRADE ROOM', 28, 126); });
+  plane(3.6, 1.12, signTex, -9.1, 0.03, -11.0, -Math.PI / 2, 0);
+  // couches in the lobby
+  box(0.7, 0.45, 2.2, M(0x1b1f2a), X0 + 0.7, 0.23, -3.2); box(2.0, 0.45, 0.7, M(0x1b1f2a), -9.0, 0.23, -1.6);
+  cyl(0.45, 0.45, 0.4, wood, -9.3, 0.2, -3.1);
+  // right wall motto
+  var mottoTex = canvasTex(256, 512, function (g, w, h) { g.fillStyle = '#16204a'; g.fillRect(0, 0, w, h); font(g, 36, 800); g.fillStyle = '#fff';
+    ['ANALYZE', 'DISCUSS', 'VOTE', 'PROFIT'].forEach(function (t, i) { g.fillText(t, 28, 110 + i * 82); }); g.fillStyle = '#3ee6a1'; font(g, 48, 900); g.fillText('↗', 28, 470); });
+  plane(1.5, 3.0, mottoTex, 10.6, 0.04, -9.3, -Math.PI / 2, 0);
+  // offices along the hallway
+  var OFF_X0 = -6.4, OFF_X1 = 8.6, nTop = Math.ceil(N / 2), nBot = N - nTop;
+  var monitorTex = [], seats = {}, offices = [];
+  function makeOffice(i, row, k, n) {
+    var w = (OFF_X1 - OFF_X0) / n, x0 = OFF_X0 + k * w, cx = x0 + w / 2;
+    var top = row === 0, zBack = top ? BLOCK_TOP : BLOCK_BOT, zFront = top ? HALL_A : HALL_B, cz = (zBack + zFront) / 2;
+    box(w - 0.2, 0.02, Math.abs(zBack - zFront) - 0.2, carpet, cx, 0.01, cz);
+    box(0.18, 1.0, Math.abs(zBack - zFront), partM, x0, 0.5, cz); if (k === n - 1) box(0.18, 1.0, Math.abs(zBack - zFront), partM, x0 + w, 0.5, cz);
+    // front wall with a door gap
+    var gap = 1.1, seg = (w - gap) / 2;
+    box(seg, 1.0, 0.16, partM, x0 + seg / 2, 0.5, zFront); box(seg, 1.0, 0.16, partM, x0 + w - seg / 2, 0.5, zFront);
+    var doorLeaf = box(0.06, 0.95, gap * 0.9, trim, x0 + seg + 0.05, 0.48, zFront + (top ? -gap * 0.45 : gap * 0.45));
+    // desk against the back wall
+    var dz = zBack + (top ? 0.9 : -0.9);
+    box(2.0, 0.08, 0.95, wood, cx, 0.78, dz); box(0.08, 0.76, 0.85, M(0x6b5238), cx - 0.92, 0.38, dz); box(0.08, 0.76, 0.85, M(0x6b5238), cx + 0.92, 0.38, dz);
+    var name = D.voters[i].name, L = LOOK[name] || LOOK['The Quant'];
+    var mt = canvasTex(256, 160, function (g, w2, h2) { g.fillStyle = '#0b1022'; g.fillRect(0, 0, w2, h2); font(g, 20, 800); g.fillStyle = L.c; g.fillText(name, 10, 26);
+      g.strokeStyle = L.c; g.lineWidth = 3; g.beginPath(); var y = 110; for (var q = 0; q <= 24; q++) { y += Math.sin(q * 0.7 + i) * 7 + (Math.random() - 0.5) * 6; g.lineTo(10 + q * 9.6, Math.max(40, Math.min(150, y))); } g.stroke(); });
+    var mon = plane(0.95, 0.6, mt, cx, 1.22, dz + (top ? -0.25 : 0.25), 0, top ? 0 : Math.PI);
+    mon.rotation.x = top ? -0.5 : 0.5; monitorTex.push(mt);
+    box(0.5, 0.03, 0.2, M(0x2a2a2a), cx, 0.83, dz + (top ? 0.2 : -0.2));
+    cyl(0.07, 0.06, 0.13, M(0xffffff), cx + 0.7, 0.88, dz);
+    // plant + chair
+    cyl(0.18, 0.14, 0.35, M(0xd8d2c4), x0 + w - 0.45, 0.18, zBack + (top ? 0.45 : -0.45)); sph(0.34, M(0x2f8a4a), x0 + w - 0.45, 0.6, zBack + (top ? 0.45 : -0.45));
+    var chairZ = dz + (top ? 1.05 : -1.05);
+    box(0.62, 0.08, 0.58, M(0x22262f), cx, 0.52, chairZ); box(0.62, 0.62, 0.08, M(0x22262f), cx, 0.85, chairZ + (top ? 0.3 : -0.3));
+    // name plate on the floor at the door (readable from above)
+    var pl = canvasTex(256, 64, function (g, w2, h2) { g.fillStyle = '#0d1322'; g.fillRect(0, 0, w2, h2); g.fillStyle = L.c; g.fillRect(0, 0, 8, h2); font(g, 28, 800); g.fillStyle = '#fff'; g.fillText(name, 18, 42); });
+    plane(1.7, 0.42, pl, cx, 0.03, zFront + (top ? 0.45 : -0.45), -Math.PI / 2, 0);
+    seats[name] = { pos: new THREE.Vector3(cx, 0, chairZ), face: top ? Math.PI : 0, door: new THREE.Vector3(x0 + seg + gap / 2, 0, zFront), cx: cx, top: top };
+    offices.push({ name: name, cx: cx, top: top });
   }
-  function screenTex(name, col) {
-    var c = document.createElement('canvas'); c.width = 256; c.height = 96; var x = c.getContext('2d');
-    var hex = '#' + col.toString(16).padStart(6, '0');
-    x.fillStyle = '#081020'; x.fillRect(0, 0, 256, 96); x.strokeStyle = hex; x.lineWidth = 4; x.strokeRect(2, 2, 252, 92);
-    x.fillStyle = hex; x.font = '700 26px ui-monospace, Menlo, monospace'; x.textAlign = 'center'; x.textBaseline = 'middle';
-    x.fillText(name.toUpperCase(), 128, 36);
-    x.fillStyle = 'rgba(207,230,255,0.6)'; x.font = '500 16px ui-monospace, Menlo, monospace'; x.fillText('COUNCIL MEMBER', 128, 68);
-    return new THREE.CanvasTexture(c);
+  for (var i = 0; i < N; i++) { if (i < nTop) makeOffice(i, 0, i, nTop); else makeOffice(i, 1, i - nTop, Math.max(1, nBot)); }
+  seats['The Chair'] = { pos: new THREE.Vector3(-9.0, 0, -8.75), face: Math.PI, door: new THREE.Vector3(LOBBY_X, 0, (HALL_A + HALL_B) / 2), cx: -9, top: true };
+  // hallway plants + water cooler
+  [[-6.0, HALL_A + 0.4], [2.0, HALL_B - 0.35], [8.9, HALL_A + 0.4]].forEach(function (p) { cyl(0.2, 0.16, 0.4, M(0xd8d2c4), p[0], 0.2, p[1]); sph(0.36, M(0x2f8a4a), p[0], 0.65, p[1]); });
+  cyl(0.22, 0.22, 1.0, M(0xe8eef6), 10.8, 0.5, -6.0); cyl(0.2, 0.2, 0.45, M(0x9fd3ff, { transparent: true, opacity: 0.8 }), 10.8, 1.2, -6.0);
+
+  // ── conference room
+  var TC = new THREE.Vector3(0, 0, 4.3), TA = 4.4, TB = 1.75;
+  var tbl = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 0.12, 64), M(0x4a2f1f, { roughness: 0.35 })); tbl.scale.set(TA, 1, TB); tbl.position.set(TC.x, 0.8, TC.z); tbl.castShadow = tbl.receiveShadow = true; sc.add(tbl);
+  cyl(0.5, 0.7, 0.75, M(0x222222), TC.x, 0.38, TC.z);
+  sph(0.3, M(0x2f8a4a), TC.x, 1.05, TC.z);
+  // vote screen (left wall) and rules board (right wall)
+  var voteState = { yes: 0, no: 0, verdict: null, title: D.title || 'No trade on the table', counting: false, note: '' };
+  var voteTex = canvasTex(512, 720, function () {});
+  function drawVote() {
+    var g = voteTex.userData.g, w = 512, h = 720;
+    g.fillStyle = '#0b1230'; g.fillRect(0, 0, w, h); g.fillStyle = '#38e1ff'; g.fillRect(0, 0, w, 10);
+    font(g, 54, 900); g.fillStyle = '#fff'; g.fillText('TRADE VOTE', 40, 92);
+    font(g, 28, 700); g.fillStyle = '#c9d3f5';
+    var t = voteState.title || '', lines = [], cur = '';
+    t.split(' ').forEach(function (wd) { if ((cur + ' ' + wd).length > 24) { lines.push(cur); cur = wd; } else cur = (cur ? cur + ' ' : '') + wd; }); if (cur) lines.push(cur);
+    lines.slice(0, 3).forEach(function (l, k) { g.fillText(l, 40, 150 + k * 36); });
+    font(g, 120, 900); g.fillStyle = '#3ee6a1'; g.fillText(String(voteState.yes), 60, 400); g.fillStyle = '#ff5468'; g.fillText(String(voteState.no), 330, 400);
+    font(g, 34, 800); g.fillStyle = '#3ee6a1'; g.fillText('YES', 64, 450); g.fillStyle = '#ff5468'; g.fillText('NO', 336, 450);
+    g.fillStyle = '#ffffff33'; g.fillRect(250, 300, 4, 160);
+    if (voteState.verdict) { var ok = /APPROVED/.test(voteState.verdict); g.fillStyle = ok ? '#3ee6a1' : '#ff5468'; g.fillRect(30, 520, w - 60, 110); font(g, 46, 900); g.fillStyle = '#0b1230'; g.fillText(voteState.verdict, 52, 592); }
+    else { font(g, 30, 700); g.fillStyle = '#8f97b8'; g.fillText(voteState.note || '', 40, 590); }
+    voteTex.needsUpdate = true;
   }
-  function signTex(text, color) {
-    var c = document.createElement('canvas'); c.width = 256; c.height = 112; var x = c.getContext('2d');
-    x.fillStyle = 'rgba(6,10,24,0.85)'; x.fillRect(0, 0, 256, 112);
-    x.strokeStyle = color; x.lineWidth = 4; x.strokeRect(4, 4, 248, 104);
-    x.fillStyle = color; x.fillRect(4, 4, 248, 6);
-    x.font = '700 50px ui-monospace, SFMono-Regular, Menlo, monospace'; x.textAlign = 'center'; x.textBaseline = 'middle';
-    x.fillText(text, 128, 62);
-    return new THREE.CanvasTexture(c);
-  }
-  D.voters.forEach(function (v, i) {
-    var seat = seatPos(i);
-    var face = Math.atan2(-seat.x, -seat.z);
-    var g = agent(v.name), u = g.userData;
-    u.i = i; u.seat = seat; u.faceSeat = face; u.yaw = face; u.phase = i * 1.37;
-    u.hip = u.legL ? u.legL.position.y : 0.6; u.prev = seat.clone(); u.blinkAt = 1 + i * 0.9;
-    // glow parts: the colored visor/face meshes, plus a halo sprite in front of the face
-    u.glows = u.glows || [];
-    var fg = glow(u.col, 0.35, 0.4); if (u.patch) { fg.position.copy(u.patch.position); fg.position.z += 0.03; g.add(fg); } u.faceGlow = fg;
-    shadowy(g, true, false);
-    g.position.copy(seat); world.add(g); people.push(g);
-    // station: sleek chair + console with a screen and a floor ring that lights with the vote
-    var st = new THREE.Group(); st.position.copy(seat); st.rotation.y = face; world.add(st);
-    var seatTop = 0.5;
-    st.add(shadowy(M(new THREE.BoxGeometry(0.66, 0.08, 0.58), STEEL), true, true)).position.set(0, seatTop - 0.04, -0.05);
-    var back = M(new THREE.BoxGeometry(0.62, 1.45, 0.06), GLASS); back.position.set(0, seatTop + 0.66, -0.36); st.add(back);
-    st.add(M(new THREE.BoxGeometry(0.03, 1.45, 0.07), glowMat(u.col))).position.set(-0.31, seatTop + 0.66, -0.36);
-    st.add(M(new THREE.BoxGeometry(0.03, 1.45, 0.07), glowMat(u.col))).position.set(0.31, seatTop + 0.66, -0.36);
-    st.add(shadowy(M(new THREE.CylinderGeometry(0.06, 0.12, seatTop - 0.08, 10), METAL2), true, true)).position.set(0, (seatTop - 0.08) / 2, -0.05);
-    var con = new THREE.Group(); con.position.set(0.62, 0, -0.2); con.scale.setScalar(0.8); st.add(con);
-    con.add(shadowy(M(new THREE.BoxGeometry(0.16, 0.9, 0.16), STEEL), true, true)).position.y = 0.45;
-    var scr = M(new THREE.PlaneGeometry(0.64, 0.24), new THREE.MeshBasicMaterial({ map: screenTex(v.name, u.col) }));
-    scr.position.set(0, 1.02, 0.06); scr.rotation.x = -0.35; con.add(scr);
-    var ringMat = addv(0x334466, 0.5);
-    var fr = M(new THREE.RingGeometry(0.46, 0.56, 48), ringMat); fr.rotation.x = -Math.PI / 2; fr.position.y = 0.012; st.add(fr);
-    var rg = glow(0xffffff, 1.6, 0); rg.position.y = 0.2; st.add(rg);
-    rings.push({ mat: ringMat, glow: rg, vote: v.vote });
-    var word = v.vote === true ? 'YES' : v.vote === false ? 'NO' : 'PASS';
-    var color = v.vote === true ? '#53f0a6' : v.vote === false ? '#ff6b7c' : '#a99fc9';
-    var sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: signTex(word, color), transparent: true, depthWrite: false }));
-    sp.scale.set(0.001, 0.001, 1); world.add(sp); signs.push(sp);
+  plane(3.2, 4.5, voteTex, X0 + 1.9, 0.04, 4.3, -Math.PI / 2, 0); box(3.4, 0.06, 4.7, M(0x0a0e1c), X0 + 1.9, 0.0, 4.3);
+  var rulesTex = canvasTex(400, 520, function (g, w, h) { g.fillStyle = '#f7f7f2'; g.fillRect(0, 0, w, h); g.strokeStyle = '#9aa2c2'; g.lineWidth = 8; g.strokeRect(4, 4, w - 8, h - 8);
+    font(g, 40, 900); g.fillStyle = '#16204a'; g.fillText('TRADE RULES', 34, 72); font(g, 34, 700);
+    ['1. Analyze', '2. Discuss', '3. Vote', '4. Execute'].forEach(function (t, k) { g.fillText(t, 44, 150 + k * 70); }); font(g, 54, 900); g.fillStyle = '#3ee6a1'; g.fillText('↗', 300, 470); });
+  plane(2.4, 3.1, rulesTex, X1 - 1.6, 0.04, 4.6, -Math.PI / 2, 0);
+  [[X0 + 1.0, 0.6], [X0 + 1.0, 8.2], [X1 - 1.0, 8.2], [X1 - 1.0, 0.6]].forEach(function (p) { cyl(0.22, 0.17, 0.45, M(0xd8d2c4), p[0], 0.22, p[1]); sph(0.42, M(0x2f8a4a), p[0], 0.75, p[1]); });
+  // seats around the table: voters + the Chair (Chair at the head, near the screen)
+  var confSeats = {};
+  CREW.forEach(function (name, k) {
+    var ang = name === 'The Chair' ? Math.PI : -Math.PI + (k + 1) * (2 * Math.PI / (N + 1));
+    var pos = new THREE.Vector3(TC.x + Math.cos(ang) * (TA + 0.75), 0, TC.z + Math.sin(ang) * (TB + 0.75));
+    confSeats[name] = { pos: pos, face: Math.atan2(TC.x - pos.x, TC.z - pos.z), ang: ang,
+                        ring: new THREE.Vector3(TC.x + Math.cos(ang) * (TA + 1.7), 0, TC.z + Math.sin(ang) * (TB + 1.5)) };
+    var ch = new THREE.Group(); ch.position.copy(pos); ch.rotation.y = confSeats[name].face; sc.add(ch);
+    box(0.62, 0.08, 0.58, M(0x1b1f2a), 0, 0.52, 0, ch); box(0.62, 0.6, 0.08, M(0x1b1f2a), 0, 0.84, -0.32, ch);
+    var paper = box(0.32, 0.01, 0.42, M(0xffffff), 0, 0.87, 0, sc); paper.position.set(TC.x + Math.cos(ang) * (TA - 0.55), 0.87, TC.z + Math.sin(ang) * (TB - 0.35)); paper.rotation.y = -ang;
   });
-  // ── commander's reactions: 🥂 cheers / 👎 disappointed
-  var GLASS = new THREE.MeshStandardMaterial({ color: 0xe8f4ff, transparent: true, opacity: 0.55, roughness: 0.05, metalness: 0.1 });
-  var BUBBLY = new THREE.MeshBasicMaterial({ color: 0xf6d36b });
-  people.forEach(function (g) {
-    var u = g.userData; if (!u.armR) return;
-    var gl = new THREE.Group(); gl.visible = false;
-    var bowl = M(new THREE.CylinderGeometry(0.06, 0.035, 0.12, 14, 1, true), GLASS); bowl.position.y = 0.1; gl.add(bowl);
-    var fizz = M(new THREE.CylinderGeometry(0.052, 0.034, 0.08, 14), BUBBLY); fizz.position.y = 0.08; gl.add(fizz);
-    var stem = M(new THREE.CylinderGeometry(0.008, 0.008, 0.08, 6), GLASS); stem.position.y = 0.0; gl.add(stem);
-    var foot = M(new THREE.CylinderGeometry(0.035, 0.035, 0.008, 12), GLASS); foot.position.y = -0.04; gl.add(foot);
-    gl.position.set(0, -0.38, 0.04); gl.rotation.x = Math.PI; gl.scale.setScalar(1.7);      // hand points down the arm; flip so the glass stands up when raised
-    u.armR.userData.joint.add(gl); u.glass = gl;
+
+  // ── people
+  var people = CREW.map(function (name) {
+    var g = person(LOOK[name] || LOOK['The Quant']); sc.add(g);
+    var s = seats[name]; var u = g.userData;
+    u.name = name; u.pos = s.pos.clone(); u.face = s.face; u.rot = s.face; u.sit = 1; u.route = []; u.wantSit = true; u.where = 'desk'; u.task = null; u.used = {};
+    g.position.copy(u.pos); g.rotation.y = u.rot; return g;
   });
-  var confN = 260, confG = new THREE.BufferGeometry(), cp = new Float32Array(confN * 3), cc = new Float32Array(confN * 3), cv = [];
-  var palette = [[0.33, 0.94, 0.65], [0.96, 0.78, 0.29], [0.22, 0.88, 1.0], [1.0, 0.42, 0.49], [0.79, 0.65, 1.0]];
-  for (var ci = 0; ci < confN; ci++) { var pc = palette[ci % 5]; cc[ci * 3] = pc[0]; cc[ci * 3 + 1] = pc[1]; cc[ci * 3 + 2] = pc[2]; cv.push([0, 0, 0]); cp[ci * 3 + 1] = -50; }
-  confG.setAttribute('position', new THREE.BufferAttribute(cp, 3)); confG.setAttribute('color', new THREE.BufferAttribute(cc, 3));
-  var confetti = new THREE.Points(confG, new THREE.PointsMaterial({ size: 0.07, vertexColors: true, transparent: true, depthWrite: false }));
-  world.add(confetti);
-  var react = null, REACT_LEN = 5.0;
-  window.councilReact = function (kind) { react = { kind: kind, t: performance.now() / 1000, burst: false }; };
-  var cheerLight = new THREE.PointLight(0xf6d36b, 0, 10, 2); cheerLight.position.set(0, 2.6, -0.6); scene.add(cheerLight);
-
-  // speaking spot marker
-  var spot = M(new THREE.RingGeometry(0.42, 0.5, 48), addv(0xf4c84a, 0.5)); spot.rotation.x = -Math.PI / 2; at(spot, SPEAK.x, 0.013, SPEAK.z);
-
-  // paths around the holotable (out on one lane, back on another)
-  var B = new THREE.Vector3(0, 0, -0.95), R = new THREE.Vector3(2.35, 0, 1.0);
-  function pathFor(u, back) {
-    var off = back ? -0.28 : 0.28, pts = [u.seat.clone()];
-    if (u.seat.x < 0.9) pts.push(B.clone().add(new THREE.Vector3(0, 0, off)));
-    pts.push(R.clone().add(new THREE.Vector3(off, 0, 0)));
-    pts.push(SPEAK.clone().add(new THREE.Vector3(0, 0, -0.1)));
-    return back ? pts.reverse() : pts;
+  function P(name) { return people[CREW.indexOf(name)]; }
+  var HALL_Z = (HALL_A + HALL_B) / 2;
+  function pathToConf(name) {
+    var s = seats[name], c = confSeats[name], pts = [], AISLE = BLOCK_BOT + 1.0;
+    pts.push(s.door.clone()); pts.push(new THREE.Vector3(s.door.x, 0, HALL_Z));
+    pts.push(new THREE.Vector3(DOOR_X, 0, HALL_Z)); pts.push(new THREE.Vector3(DOOR_X, 0, AISLE));
+    if (Math.sin(c.ang) <= 0.05) pts.push(new THREE.Vector3(c.ring.x, 0, AISLE));
+    else { var sx = c.ring.x >= 0 ? TA + 2.0 : -(TA + 2.0); pts.push(new THREE.Vector3(sx, 0, AISLE)); pts.push(new THREE.Vector3(sx, 0, c.ring.z)); }
+    pts.push(c.ring.clone()); pts.push(c.pos.clone()); return pts;
   }
-  function along(pts, k) {
-    var L = 0, seg = []; for (var i = 1; i < pts.length; i++) { var d = pts[i].distanceTo(pts[i - 1]); seg.push(d); L += d; }
-    var want = k * L;
-    for (var j = 0; j < seg.length; j++) { if (want <= seg[j] || j === seg.length - 1) return pts[j].clone().lerp(pts[j + 1], Math.min(1, want / seg[j])); want -= seg[j]; }
-    return pts[pts.length - 1].clone();
-  }
-  people.forEach(function (g) { g.userData.out = pathFor(g.userData, false); g.userData.back = pathFor(g.userData, true); });
+  function pathToDesk(name) { return pathToConf(name).reverse().slice(1).concat([seats[name].pos.clone()]); }
+  function walk(name, pts, face, sitAfter, where) { var u = P(name).userData; u.route = pts; u.face = face; u.wantSit = sitAfter; u.where = where; u.sitDelay = 0; }
+  function toConf(name) { walk(name, pathToConf(name), confSeats[name].face, true, 'conf'); }
+  function toDesk(name) { var u = P(name).userData; if (u.where === 'desk' && !u.route.length) return; walk(name, u.where === 'conf' ? pathToDesk(name) : [seats[name].door.clone(), seats[name].pos.clone()], seats[name].face, true, 'desk'); }
+  function settled(name) { var u = P(name).userData; return !u.route.length && u.sit > 0.95; }
 
-  // ── life between votes: mingling, chit-chat bubbles, assembling, and parties
-  var t0 = performance.now(), lastT = 0;
-  var nowS = function () { return Date.now() / 1000; };
-  function sget(k, ses) { try { return (ses ? sessionStorage : localStorage).getItem(k); } catch (e) { return null; } }
-  function sset(k, v, ses) { try { (ses ? sessionStorage : localStorage).setItem(k, v); } catch (e) {} }
-  function sdel(k, ses) { try { (ses ? sessionStorage : localStorage).removeItem(k); } catch (e) {} }
-  var SPEED = 1.1, TC = new THREE.Vector3(0, 0, 1.0), PARTY_C = new THREE.Vector3(0, 0, 3.05);
-  var SPOTS = [[-3.0, 2.6], [-1.6, 3.1], [0, 3.3], [1.6, 3.1], [3.0, 2.6], [-3.4, 0.9], [3.4, 0.9], [-1.7, -0.9], [1.7, -0.9],
-               [-3.7, -0.3], [3.7, -0.3], [2.4, 2.1], [-2.4, 2.1], [0, -0.85]].map(function (a) { return new THREE.Vector3(a[0], 0, a[1]); });
-  function rnd(a) { return a[Math.floor(Math.random() * a.length)]; }
-  function route(a, b) {
-    var pts = [], ab = b.clone().sub(a), L2 = ab.lengthSq();
-    var k = L2 ? Math.max(0, Math.min(1, TC.clone().sub(a).dot(ab) / L2)) : 0;
-    var cl = a.clone().add(ab.clone().multiplyScalar(k)), off = cl.clone().sub(TC); off.y = 0;
-    if (off.length() < 1.4 && k > 0.02 && k < 0.98) {
-      if (off.length() < 1e-3) off.set(a.x >= 0 ? 1 : -1, 0, 0);
-      pts.push(TC.clone().add(off.normalize().multiplyScalar(1.8)));
-    }
-    pts.push(b.clone()); return pts;
-  }
-  people.forEach(function (g) { var u = g.userData; u.pos = u.seat.clone(); u.sit = 1; u.route = []; u.wantSit = true; u.face = u.faceSeat; u.task = null; u.talkUntil = 0; u.used = {}; });
-  function goTo(u, dest, face) { u.route = route(u.pos, dest); u.face = face; u.wantSit = false; }
-  function goSeat(u) { u.route = route(u.pos, u.seat); u.face = u.faceSeat; u.wantSit = true; }
-  function seated(g) { var u = g.userData; return !u.route.length && u.wantSit && u.sit > 0.95; }
-  function lineFor(name, pool) {
-    var xs = (pool || D.chatter || {})[name] || [], u = people[D.voters.findIndex(function (v) { return v.name === name; })].userData;
-    if (!xs.length) return null;
-    var fresh = xs.filter(function (l) { return !u.used[l]; });
-    if (!fresh.length) { u.used = {}; fresh = xs; }
-    var l = rnd(fresh); u.used[l] = 1; return l;
-  }
-  function idx(name) { for (var i = 0; i < N; i++) if (D.voters[i].name === name) return i; return -1; }
-
-  // speech bubbles (HTML over the canvas so they stay crisp on a phone)
+  // ── speech bubbles + vote tags
   var bubWrap = document.createElement('div'); bubWrap.className = 'bubbles'; stage.appendChild(bubWrap);
   var pill = document.createElement('div'); pill.className = 'phasepill'; stage.appendChild(pill);
   var banner = document.createElement('div'); banner.className = 'partybanner'; banner.hidden = true; stage.appendChild(banner);
-  var bubs = [], V = new THREE.Vector3(), HEX = { 'The Quant': '#3ee6a1', 'Risk': '#ff5468', 'Momentum': '#ffb03b', 'Time': '#4cb7ff', 'Doubt': '#c9a7ff' };
-  function speak(who, text, dur) {
-    if (!text || (who !== 'chair' && who < 0)) return;
-    var name = who === 'chair' ? 'The Chair' : D.voters[who].name;
-    bubs = bubs.filter(function (b) { if (b.who === who) { b.el.remove(); return false; } return true; });
-    while (bubs.length >= 2) { bubs.shift().el.remove(); }
-    if (text.length > 90) text = text.slice(0, 88).replace(/\s+\S*$/, '') + '…';
-    var el = document.createElement('div'); el.className = 'bub'; el.style.setProperty('--bc', who === 'chair' ? '#f4c84a' : HEX[name] || '#fff');
+  var bubs = [], tags = {}, V = new THREE.Vector3();
+  function colorOf(name) { return (LOOK[name] || {}).c || '#fff'; }
+  function speak(name, text, dur) {
+    if (!text) return;
+    bubs = bubs.filter(function (b) { if (b.name === name) { b.el.remove(); return false; } return true; });
+    while (bubs.length >= 3) bubs.shift().el.remove();
+    if (text.length > 96) text = text.slice(0, 94).replace(/\s+\S*$/, '') + '…';
+    var el = document.createElement('div'); el.className = 'bub'; el.style.setProperty('--bc', colorOf(name));
     var b = document.createElement('b'); b.textContent = name; el.appendChild(b); el.appendChild(document.createTextNode(text));
     bubWrap.appendChild(el); requestAnimationFrame(function () { el.classList.add('on'); });
-    var len = dur || Math.min(5.5, 2.2 + text.length * 0.045);
-    bubs.push({ who: who, el: el, until: performance.now() / 1000 + len });
-    if (who !== 'chair') people[who].userData.talkUntil = lastT + Math.min(len, 2.6);
+    var len = dur || Math.min(6, 2.4 + text.length * 0.045);
+    bubs.push({ name: name, el: el, until: performance.now() / 1000 + len });
+    P(name).userData.talkUntil = performance.now() / 1000 + Math.min(len, 2.6);
   }
-  function placeBubbles(nowP) {
-    var W = stage.clientWidth, H = renderer.domElement.clientHeight, placed = [];
+  function tag(name, vote) {
+    if (tags[name]) tags[name].remove();
+    if (vote === undefined) { delete tags[name]; return; }
+    var el = document.createElement('div'); el.className = 'vtag ' + (vote === true ? 'yes' : vote === false ? 'no' : 'abs');
+    el.textContent = vote === true ? 'YES' : vote === false ? 'NO' : '—'; bubWrap.appendChild(el); tags[name] = el;
+  }
+  function screenPos(name, lift) {
+    P(name).userData.head.getWorldPosition(V); V.y += lift; V.project(cam);
+    var W = stage.clientWidth, H = renderer.domElement.clientHeight; return { x: (V.x + 1) / 2 * W, y: (1 - V.y) / 2 * H, W: W, H: H };
+  }
+  function placeOverlays(nowP) {
+    var placed = [];
     bubs = bubs.filter(function (b) {
       if (nowP > b.until) { b.el.classList.remove('on'); setTimeout(function () { b.el.remove(); }, 300); return false; }
-      if (b.who === 'chair') jhead.getWorldPosition(V); else people[b.who].userData.head.getWorldPosition(V);
-      V.y += 0.42; V.project(cam);
-      var x = (V.x + 1) / 2 * W, y = (1 - V.y) / 2 * H, bw = b.el.offsetWidth || 120, bh = b.el.offsetHeight || 40;
-      var left = Math.max(4, Math.min(W - bw - 4, x - bw / 2)), top = Math.max(bh + 4, Math.min(H - 4, y));
-      placed.forEach(function (r) {                                   // stack above an earlier bubble instead of covering it
-        if (left < r.l + r.w + 4 && left + bw + 4 > r.l && top - bh < r.t + 4 && top + 4 > r.t - r.h) {
-          var up = r.t - r.h - 8;
-          if (up - bh >= 4) top = up; else top = Math.min(H - 4, r.t + bh + 8);
-        }
-      });
-      placed.push({ l: left, t: top, w: bw, h: bh });
-      b.el.style.left = left + 'px'; b.el.style.top = top + 'px';
-      b.el.style.setProperty('--tx', Math.max(12, Math.min(bw - 12, x - left)) + 'px');
-      b.el.style.visibility = V.z > 1 ? 'hidden' : 'visible';
+      var s = screenPos(b.name, 0.5), bw = b.el.offsetWidth || 130, bh = b.el.offsetHeight || 40;
+      var left = Math.max(4, Math.min(s.W - bw - 4, s.x - bw / 2)), top = Math.max(bh + 4, Math.min(s.H - 4, s.y - 6));
+      placed.forEach(function (p) { if (left < p.r && left + bw > p.l && top > p.t - bh - 4 && top - bh < p.t + 4) top = Math.max(bh + 4, p.t - p.h - 6); });
+      placed.push({ l: left, r: left + bw, t: top, h: bh });
+      b.el.style.left = left + 'px'; b.el.style.top = top + 'px'; b.el.style.setProperty('--tx', Math.max(12, Math.min(bw - 12, s.x - left)) + 'px');
       return true;
     });
+    Object.keys(tags).forEach(function (name) { var s = screenPos(name, 0.25), el = tags[name]; el.style.left = (s.x - 18) + 'px'; el.style.top = (s.y - 14) + 'px'; });
   }
+  function lineFor(name) {
+    var live = ((D.chatter || {})[name] || []).slice(), pool = live.length ? (Math.random() < 0.75 ? live : live.concat((LOOK[name] || {}).lines || [])) : ((LOOK[name] || {}).lines || []);
+    var u = P(name).userData, fresh = pool.filter(function (l) { return !u.used[l]; });
+    if (!fresh.length) { u.used = {}; fresh = pool; }
+    var l = fresh[Math.floor(Math.random() * fresh.length)]; u.used[l] = 1; return l;
+  }
+  function sget(k, ses) { try { return (ses ? sessionStorage : localStorage).getItem(KEY + k); } catch (e) { return null; } }
+  function sset(k, v, ses) { try { (ses ? sessionStorage : localStorage).setItem(KEY + k, v); } catch (e) {} }
+  function sdel(k, ses) { try { (ses ? sessionStorage : localStorage).removeItem(KEY + k); } catch (e) {} }
 
-  var PARTY_LINES = { 'The Quant': 'The numbers never lie! 📈', 'Risk': 'And we stayed inside our risk. Cheers!', 'Momentum': 'Told you it would run! 🚀',
-                      'Time': 'Right on schedule. ⏱', 'Doubt': 'Fine… I’m impressed. 🥂' };
-  var WAIT_LINES = { 'The Quant': 'Numbers are loaded.', 'Risk': 'Stops ready if we go.', 'Momentum': 'Come on, come on…', 'Time': '', 'Doubt': 'Here we go again.' };
-  var phase = { name: 'mingle', t: 0 }, assembledFor = 0, chats = [], partyQ = null, nextSay = 0;
-  var disco = [0xff4fd8, 0x38e1ff, 0xffd84a].map(function (c) { var l = new THREE.PointLight(c, 0, 9, 2); scene.add(l); return l; });
-  var confettiUntil = 0;
-  function fmtClock(ts) { try { return new Date(ts * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }); } catch (e) { return 'the next candle'; } }
-
-  function startMingle(t) {
-    phase = { name: 'mingle', t: t }; chats = []; banner.hidden = true;
-    people.forEach(function (g, i) { var u = g.userData; u.wantSit = false; u.route = []; u.dance = false; u.task = { type: 'rest', until: t + 0.6 + i * 0.8 }; });
-    if (partyQ) { var P = partyQ; partyQ = null; startParty(t + 0.01, P); }
-  }
-  function callToOrder(t, then, line, hold) {
-    phase = { name: 'assemble', t: t, then: then, hold: hold || 0 }; chats = []; banner.hidden = true;
-    people.forEach(function (g) { var u = g.userData; u.task = null; u.dance = false; goSeat(u); });
-    if (line) speak('chair', line, 3.4);
-  }
+  // ── phases: work (at desks) → assemble (walk to the conference room) → hearing (vote) → back to work; party; recess
+  var phase = { name: 'work', t: 0 }, nextChat = 2, nowS = function () { return Date.now() / 1000; }, confetti = [];
+  function startWork(t, msg) { phase = { name: 'work', t: t }; CREW.forEach(function (n) { tag(n); toDesk(n); }); if (msg) speak('The Chair', msg, 3.5); stampEl.classList.remove('show'); voteState.verdict = null; voteState.note = nextNote(); drawVote(); }
+  function startAssemble(t, then, msg) { phase = { name: 'assemble', t: t, then: then, readyAt: t + CREW.length * 0.35 + 0.8 }; CREW.forEach(function (n, k) { setTimeout(function () { toConf(n); }, k * 350); }); speak('The Chair', msg || 'Conference room, everyone. We have a setup.', 3.5); }
   function startHearing(t) {
-    phase = { name: 'hearing', t: t };
-    people.forEach(function (g) { var u = g.userData; u.pos.copy(u.seat); u.sit = 1; u.route = []; u.wantSit = true; u.task = null; u.spoke = -1; });
+    voteState = { yes: 0, no: 0, verdict: null, title: D.title || 'Last trade', note: '' }; drawVote();
+    phase = { name: 'hearing', t: t, step: -1, nextAt: t + 1.2 };
+    CREW.forEach(function (n) { var u = P(n).userData, c = confSeats[n]; if (u.pos.distanceTo(c.pos) > 0.05 || u.route.length) { u.pos.copy(c.pos); u.rot = u.face = c.face; u.route = []; u.wantSit = true; u.sit = 1; } u.where = 'conf'; });
+    sset('Heard', String(D.lastVoteT));
   }
-  function startParty(t, P) {
-    phase = { name: 'party', t: t, p: P, danceT: 0, said: 0 }; chats = [];
-    sset('vfxParty', String(P.t));
-    banner.textContent = '';
-    var h = document.createElement('b'); h.textContent = (P.kind === 'win' ? '🎉 THE THEORY WORKED' : P.kind === 'comeback' ? '🎉 COMEBACK' : '🎉 THEORY PROVEN'); banner.appendChild(h);
-    var a = document.createElement('span'); a.textContent = P.title; banner.appendChild(a);
-    var c = document.createElement('small'); c.textContent = P.detail || ''; banner.appendChild(c);
-    banner.hidden = false;
-    people.forEach(function (g, i) {
-      var u = g.userData, ang = -Math.PI / 2 + (i - (N - 1) / 2) * (Math.PI * 2 / N);
-      var dest = PARTY_C.clone().add(new THREE.Vector3(Math.cos(ang) * 1.05, 0, Math.sin(ang) * 1.05));
-      u.task = null; goTo(u, dest, Math.atan2(PARTY_C.x - dest.x, PARTY_C.z - dest.z));
-    });
-    speak('chair', 'Council! ' + P.title + (P.kind === 'win' ? '!' : P.kind === 'comeback' ? ' is back!' : ' is proven!') + ' Party time!', 3.2);
+  function hearingTick(t) {
+    if (t < phase.nextAt) return;
+    phase.step++;
+    if (phase.step === 0) { speak('The Chair', 'Order. On the table: ' + (D.title || 'the last setup') + '.', 4); phase.nextAt = t + 3.6; return; }
+    var i = phase.step - 1;
+    if (i < N) {
+      var v = D.voters[i]; tag(v.name, v.vote);
+      if (v.vote === true) voteState.yes++; else if (v.vote === false) voteState.no++; drawVote();
+      speak(v.name, (v.vote === true ? 'YES. ' : v.vote === false ? 'NO. ' : 'Pass. ') + (v.why || ''), 4.2);
+      phase.nextAt = t + 2.8; return;
+    }
+    if (i === N) {
+      voteState.verdict = D.verdict; drawVote(); stampEl.classList.add('show');
+      speak('The Chair', D.approved ? (D.verdict + '. We’re in. Risk, set the stop.') : (D.verdict + '. We pass on this one.'), 4.5);
+      if (D.approved) CREW.forEach(function (n) { P(n).userData.cheerUntil = t + 2.5; });
+      phase.nextAt = t + 6; return;
+    }
+    startWork(t, 'Back to your desks. Good meeting.');
   }
-  function burst(cx, cz) {
-    for (var b = 0; b < confN; b++) {
-      cp[b * 3] = (cx || 0) + (Math.random() - 0.5) * 1.2; cp[b * 3 + 1] = 2.6 + Math.random() * 0.4; cp[b * 3 + 2] = (cz === undefined ? -0.6 : cz) + (Math.random() - 0.5) * 1.2;
-      var a = Math.random() * Math.PI * 2, sp_ = 1.2 + Math.random() * 2.4;
-      cv[b] = [Math.cos(a) * sp_, 2 + Math.random() * 3, Math.sin(a) * sp_];
-    }
-    confG.attributes.position.needsUpdate = true; confettiUntil = performance.now() / 1000 + 6;
+  function startParty(t, Pt) {
+    phase = { name: 'party', t: t }; sset('Party', String(Pt.t));
+    banner.textContent = ''; var h = document.createElement('b'); h.textContent = Pt.kind === 'win' ? '🎉 THE THEORY WORKED' : Pt.kind === 'comeback' ? '🎉 COMEBACK' : '🎉 THEORY PROVEN'; banner.appendChild(h);
+    var a = document.createElement('span'); a.textContent = Pt.title || ''; banner.appendChild(a); var c = document.createElement('small'); c.textContent = Pt.detail || ''; banner.appendChild(c); banner.hidden = false;
+    CREW.forEach(function (n) { toConf(n); });
+    for (var k = 0; k < 120; k++) { var m = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.26), new THREE.MeshBasicMaterial({ color: [0x3ee6a1, 0xf4c84a, 0x38e1ff, 0xff4fd8, 0xff5468][k % 5], side: 2 }));
+      m.position.set(TC.x + (Math.random() - 0.5) * 12, 4 + Math.random() * 6, TC.z + (Math.random() - 0.5) * 6); m.userData.v = (0.02 + Math.random() * 0.03); sc.add(m); confetti.push(m); }
   }
-
-  function mingleTick(t) {
-    // finish conversations
-    chats = chats.filter(function (ch) {
-      var A = people[ch.a].userData, B = people[ch.b].userData;
-      if (A.route.length || B.route.length) return true;
-      if (!ch.step) { ch.step = 1; ch.next = t + 0.3; }
-      if (t < ch.next) return true;
-      if (ch.step === 1) { speak(ch.first, ch.l1); ch.step = 2; ch.next = t + Math.min(5, 2.4 + ch.l1.length * 0.045); return true; }
-      if (ch.step === 2) { speak(ch.second, ch.l2); ch.step = 3; ch.next = t + Math.min(5, 2.4 + ch.l2.length * 0.045); return true; }
-      A.task = { type: 'rest', until: t + 1 + Math.random() * 2 }; B.task = { type: 'rest', until: t + 1 + Math.random() * 2 };
-      return false;
-    });
-    var free = [];
-    people.forEach(function (g, i) {
-      var u = g.userData;
-      if (u.task && u.task.type === 'rest' && t > u.task.until) u.task = null;
-      if (u.task && u.task.type === 'solo' && !u.route.length) {
-        if (!u.task.said) { u.task.said = true; u.task.until = t + 3.5 + Math.random() * 2.5; speak(i, lineFor(D.voters[i].name)); }
-        else if (t > u.task.until) u.task = null;
-      }
-      if (!u.task && !u.route.length && u.sit < 0.1) free.push(i);
-    });
-    if (!free.length) return;
-    var talking = chats.length;
-    if (free.length >= 2 && talking < 2 && Math.random() < 0.6) {
-      var ds = (D.dialogs || []).slice().sort(function () { return Math.random() - 0.5; });
-      for (var k = 0; k < ds.length; k++) {
-        var a = idx(ds[k][0]), b = idx(ds[k][2]);
-        if (a < 0 || b < 0 || free.indexOf(a) < 0 || free.indexOf(b) < 0) continue;
-        var key = ds[k][1]; if ((chats.used || {})[key] && Math.random() < 0.8) continue;
-        var S = rnd(SPOTS), ang = Math.random() * Math.PI, off = new THREE.Vector3(Math.cos(ang) * 0.48, 0, Math.sin(ang) * 0.48);
-        var pa = S.clone().add(off), pb = S.clone().sub(off), A = people[a].userData, B = people[b].userData;
-        goTo(A, pa, Math.atan2(pb.x - pa.x, pb.z - pa.z)); goTo(B, pb, Math.atan2(pa.x - pb.x, pa.z - pb.z));
-        A.task = { type: 'chat' }; B.task = { type: 'chat' };
-        chats.push({ a: a, b: b, first: a, second: b, l1: ds[k][1], l2: ds[k][3], step: 0 });
-        return;
-      }
-    }
-    var i = rnd(free), u = people[i].userData;
-    if (Math.random() < 0.25) { goTo(u, u.seat.clone().add(new THREE.Vector3(Math.sin(u.faceSeat) * 0.55, 0, Math.cos(u.faceSeat) * 0.55)), u.faceSeat + Math.PI); }
-    else { var S2 = rnd(SPOTS), j = new THREE.Vector3((Math.random() - 0.5) * 0.6, 0, (Math.random() - 0.5) * 0.6);
-      goTo(u, S2.clone().add(j), Math.atan2(-S2.x, (S2.z < 1.5 ? 1.0 : 5) - S2.z)); }
-    u.task = { type: 'solo' };
-  }
-  function separate() {
-    for (var a = 0; a < N; a++) for (var b = a + 1; b < N; b++) {
-      var A = people[a].userData, B = people[b].userData;
-      if (A.sit > 0.2 || B.sit > 0.2) continue;
-      var dx = B.pos.x - A.pos.x, dz = B.pos.z - A.pos.z, d = Math.hypot(dx, dz);
-      if (d > 0 && d < 0.62) { var push = (0.62 - d) / 2 / d; A.pos.x -= dx * push; A.pos.z -= dz * push; B.pos.x += dx * push; B.pos.z += dz * push; }
-    }
-  }
-  function steer(g, u, t, dt, frozen) {
-    if (u.route.length && !frozen) {
-      if (u.sit > 0.02) u.sit = Math.max(0, u.sit - dt * 2.2);
-      else {
-        var tg = u.route[0], dx = tg.x - u.pos.x, dz = tg.z - u.pos.z, dist = Math.hypot(dx, dz), st_ = SPEED * dt;
-        if (dist <= st_) { u.pos.x = tg.x; u.pos.z = tg.z; u.route.shift(); } else { u.pos.x += dx / dist * st_; u.pos.z += dz / dist * st_; }
-      }
-    } else if (!u.route.length) {
-      u.sit += ((u.wantSit ? 1 : 0) - u.sit) * Math.min(1, dt * 3);
-    }
-    return { pos: u.pos, sit: u.sit, face: u.face, dance: u.dance };
-  }
-  function nextVoteTs(ns) { var nv = D.nextVote || 0; while (nv && ns - nv > 60) nv += 900; return nv; }
-
-  function director(t, dt) {
-    var ns = nowS();
-    if (phase.name === 'hearing') {
-      if (t - phase.t >= CYCLE) { sset('vfxHeard', String(D.lastVoteT)); startMingle(t); }
-      return;
-    }
-    if (phase.name === 'assemble') {
-      if (people.every(seated)) {
-        if (phase.then === 'hearing') startHearing(t);
-        else { phase = { name: 'wait', t: t, until: phase.hold ? t + phase.hold : 0, closed: !!phase.hold }; nextSay = t + 2; }
-      }
-      return;
-    }
-    if (phase.name === 'wait') {
-      var left = Math.round(assembledFor - ns);
-      if (left > 0 && t > nextSay) {
-        nextSay = t + 6;
-        var who = Math.floor(Math.random() * N), nm = D.voters[who].name;
-        speak(who, nm === 'Time' ? 'Candle closes in ' + left + ' seconds.' : WAIT_LINES[nm], 2.6);
-      }
-      if (left <= 0 && !phase.closed) { phase.closed = true; speak('chair', 'The candle has closed. Counting votes… results post in about a minute.', 4.5); }
-      if (!phase.until && ns > assembledFor + 110 && !phase.reloading) { phase.reloading = true; location.replace(location.pathname + '?r=' + Math.floor(ns)); }
-      if (phase.until && t > phase.until) startMingle(t);
-      return;
-    }
-    if (phase.name === 'party') {
-      var allIn = people.every(function (g) { return !g.userData.route.length; });
-      if (allIn && !phase.danceT) { phase.danceT = t; burst(PARTY_C.x, PARTY_C.z); people.forEach(function (g) { g.userData.dance = true; }); }
-      if (phase.danceT) {
-        var dtp = t - phase.danceT;
-        while (phase.said < N && dtp > 0.8 + phase.said * 1.7) { speak(phase.said, PARTY_LINES[D.voters[phase.said].name] || '🎉', 2.6); phase.said++; }
-        if (Math.floor(dtp / 2.8) !== phase.lastBurst) { phase.lastBurst = Math.floor(dtp / 2.8); if (dtp > 1) burst(PARTY_C.x + (Math.random() - 0.5), PARTY_C.z); }
-        if (dtp > 10 && !phase.bye) { phase.bye = true; speak('chair', 'Well done, council. Back to work!', 2.8); }
-        if (dtp > 12.5) { people.forEach(function (g) { g.userData.dance = false; }); startMingle(t); }
-      }
-      return;
-    }
-    // mingle
-    if (!D.recess) {
-      var nv = nextVoteTs(ns), lft = nv - ns;
-      if (nv && lft > 0 && lft <= 75 && assembledFor !== nv) {
-        assembledFor = nv; sset('vfxWait', String(nv), true);
-        callToOrder(t, 'wait', 'Council, to your seats! Vote at ' + fmtClock(nv) + '.');
-        return;
-      }
-    }
-    mingleTick(t);
-  }
-  function phaseLabel(ns) {
-    if (phase.name === 'hearing') return '⚖️ In session';
+  function endParty(t) { banner.hidden = true; confetti.forEach(function (m) { sc.remove(m); }); confetti = []; startWork(t, 'Okay okay, back to work. Great job, team.'); }
+  function nextNote() { if (D.recess) return 'Off duty · market closed'; var nv = D.nextVote || 0, s = Math.max(0, Math.round(nv - nowS())); return nv ? 'Next vote in ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') : 'Waiting for a setup'; }
+  function phaseLabel() {
+    if (phase.name === 'hearing') return '⚖️ Vote in session';
+    if (phase.name === 'assemble') return '📣 Heading to the conference room';
     if (phase.name === 'party') return '🎉 Party!';
-    if (phase.name === 'assemble') return '📣 Taking seats';
-    if (phase.name === 'wait') { var l = Math.round(assembledFor - ns); return l > 0 ? '⏳ Vote in ' + l + 's' : '🗳 Counting votes…'; }
+    if (phase.name === 'wait') return '🗳 Counting votes…';
     if (D.recess) return '☕ Off duty · market closed';
-    var nv = nextVoteTs(ns), s = Math.max(0, Math.round(nv - ns));
-    return nv ? '☕ Break · next vote in ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') : '☕ Break';
+    return '💼 At their desks · ' + nextNote();
   }
 
-  // what to do when the page opens
-  (function boot() {
-    var ns = nowS(), wait = +(sget('vfxWait', true) || 0);
-    var P = (D.parties || []).filter(function (p) { return p.t > +(sget('vfxParty') || 0) && ns - p.t < 172800; }).pop();
-    if (P) partyQ = P;
-    if (wait && !D.recess) {
-      if (D.scanT < wait && ns < wait + 420) {                        // the new results haven't posted yet
-        assembledFor = wait; phase = { name: 'wait', t: 0, closed: true, reloading: true }; nextSay = 2;
-        setTimeout(function () { speak('chair', 'Still counting… hang tight.', 3); }, 600);
-        var tries = +(sget('vfxTries', true) || 0); sset('vfxTries', String(tries + 1), true);
-        if (tries < 5) setTimeout(function () { location.replace(location.pathname + '?r=' + Math.floor(nowS())); }, 45000);
-        else { sdel('vfxWait', true); phase.until = 4; }
-        return;
-      }
-      sdel('vfxWait', true); sdel('vfxTries', true);
-      if (D.verdict && D.lastVoteT >= wait - 120) { startHearing(0); return; }
-      phase = { name: 'wait', t: 0, closed: true, until: 5 }; assembledFor = ns - 999;
-      setTimeout(function () { speak('chair', 'No setups this candle. Back to work, team!', 3.4); }, 500);
+  // dialogs: two officers meet in the hallway
+  function startDialog(t) {
+    var ds = (D.dialogs || []).filter(function (d) { return CREW.indexOf(d[0]) >= 0 && CREW.indexOf(d[2]) >= 0; });
+    if (!ds.length) return false;
+    var d = ds[Math.floor(Math.random() * ds.length)], a = d[0], b = d[2];
+    var mx = (seats[a].door.x + seats[b].door.x) / 2;
+    var pa = new THREE.Vector3(mx - 0.55, 0, HALL_Z), pb = new THREE.Vector3(mx + 0.55, 0, HALL_Z);
+    walk(a, [seats[a].door.clone(), new THREE.Vector3(seats[a].door.x, 0, HALL_Z), pa], Math.PI / 2, false, 'hall');
+    walk(b, [seats[b].door.clone(), new THREE.Vector3(seats[b].door.x, 0, HALL_Z), pb], -Math.PI / 2, false, 'hall');
+    phase.dialog = { a: a, b: b, l1: d[1], l2: d[3], stage: 0, t: t };
+    return true;
+  }
+  function workTick(t) {
+    var dg = phase.dialog;
+    if (dg) {
+      if (dg.stage === 0 && settled2(dg.a) && settled2(dg.b)) { speak(dg.a, dg.l1, 3.6); dg.stage = 1; dg.t = t; }
+      else if (dg.stage === 1 && t > dg.t + 3.4) { speak(dg.b, dg.l2, 3.8); dg.stage = 2; dg.t = t; }
+      else if (dg.stage === 2 && t > dg.t + 4.2) { toDesk(dg.a); toDesk(dg.b); phase.dialog = null; nextChat = t + 3; }
+      else if (t > dg.t + 30) { toDesk(dg.a); toDesk(dg.b); phase.dialog = null; }
       return;
     }
-    if (D.verdict && D.lastVoteT && ns - D.lastVoteT < 600 && sget('vfxHeard') !== String(D.lastVoteT) && !D.recess) { startHearing(0); return; }
-    startMingle(0);
-    if (!partyQ) setTimeout(function () { var i = Math.floor(Math.random() * N); speak(i, lineFor(D.voters[i].name)); }, 1500);
-  })();
+    if (t > nextChat) {
+      if (!D.recess && Math.random() < 0.35 && startDialog(t)) return;
+      var who = CREW[Math.floor(Math.random() * CREW.length)];
+      speak(who, D.recess && Math.random() < 0.4 ? 'Market’s closed. Catching up on my notes.' : lineFor(who));
+      nextChat = t + 4.5 + Math.random() * 3.5;
+    }
+    // auto-assemble about a minute before a scheduled vote
+    var nv = D.nextVote || 0, ns = nowS();
+    if (!D.recess && nv && nv - ns < 60 && nv - ns > 0) { startAssemble(t, 'wait', 'Conference room in a minute, team. New candle coming.'); sset('Wait', String(nv), true); }
+  }
+  function settled2(name) { return !P(name).userData.route.length; }
+  function waitTick(t) {
+    var w = +(sget('Wait', true) || 0), ns = nowS();
+    voteState.note = 'Counting votes…'; if (Math.floor(t) % 2 === 0) drawVote();
+    if (w && ns > w + 75 && !phase.reloading) {
+      phase.reloading = true; var tries = +(sget('Tries', true) || 0); sset('Tries', String(tries + 1), true);
+      if (tries < 5) location.replace(location.pathname + '?r=' + Math.floor(ns)); else { sdel('Wait', true); startWork(t, 'Nothing new this candle. Back to work.'); }
+    }
+  }
+
+  // ── controls the page already has
+  window.councilReact = function (kind) {
+    var t = performance.now() / 1000;
+    CREW.forEach(function (n, k) { var u = P(n).userData; if (kind === 'cheers') u.cheerUntil = t + 2.5; else u.sadUntil = t + 3; });
+    var who = CREW[Math.floor(Math.random() * N)];
+    speak(who, kind === 'cheers' ? 'Thanks, Commander! 🥂' : 'Heard. We’ll tighten it up.', 3);
+  };
   var callBtn = document.getElementById('callOrder'), partyBtn = document.getElementById('partyBtn');
   if (callBtn) {
-    if (!D.verdict) callBtn.textContent = '📣 Call to order (no vote yet)';
+    if (!D.verdict) callBtn.textContent = '📣 Call a meeting (no vote yet)';
     callBtn.addEventListener('click', function () {
       if (phase.name === 'hearing' || phase.name === 'assemble') return;
-      if (D.verdict) callToOrder(lastT, 'hearing', 'Order! Let’s go over the last vote.');
-      else { assembledFor = nowS() - 999; callToOrder(lastT, 'wait', 'Order! Nothing to vote on yet. As you were.', 5); }
+      if (phase.name === 'party') { banner.hidden = true; confetti.forEach(function (m) { sc.remove(m); }); confetti = []; }
+      if (D.verdict) startAssemble(performance.now() / 1000, 'hearing', 'Meeting! Let’s go over the last vote.');
+      else { startAssemble(performance.now() / 1000, 'nothing', 'Quick meeting: nothing to vote on yet.'); }
     });
   }
   var lastParty = (D.parties || [])[(D.parties || []).length - 1];
-  if (partyBtn && lastParty) {
-    partyBtn.hidden = false;
-    partyBtn.addEventListener('click', function () { if (phase.name !== 'party' && phase.name !== 'hearing') startParty(lastT, lastParty); });
-  }
+  if (partyBtn && lastParty) { partyBtn.hidden = false; partyBtn.addEventListener('click', function () { if (phase.name === 'work') startParty(performance.now() / 1000, lastParty); }); }
+
+  // tap an officer to see their last vote
+  var ray = new THREE.Raycaster(), ptr = new THREE.Vector2();
+  renderer.domElement.addEventListener('click', function (e) {
+    var r = renderer.domElement.getBoundingClientRect(); ptr.set((e.clientX - r.left) / r.width * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(ptr, cam); var best = null;
+    people.forEach(function (g, k) { var hits = ray.intersectObject(g, true); if (hits.length && (!best || hits[0].distance < best.d)) best = { d: hits[0].distance, k: k }; });
+    if (!best) { tip.hidden = true; return; }
+    var name = CREW[best.k], v = D.voters.find(function (x) { return x.name === name; });
+    tip.innerHTML = ''; var b = document.createElement('b'); b.textContent = name; tip.appendChild(b);
+    var s1 = document.createElement('span'); s1.textContent = v ? ((v.vote === true ? 'Voted YES' : v.vote === false ? 'Voted NO' : 'No vote') + ': ' + (v.why || '')) : 'Runs the meeting'; tip.appendChild(s1);
+    if (v) { var s2 = document.createElement('small'); s2.textContent = v.acc || ''; tip.appendChild(s2); }
+    tip.hidden = false; clearTimeout(tip._t); tip._t = setTimeout(function () { tip.hidden = true; }, 6000);
+    speak(name, lineFor(name));
+  });
 
   // ── layout
   function size() {
-    var w = stage.clientWidth || 360, h = Math.round(Math.min(520, Math.max(320, w * 0.82)));
-    renderer.setSize(w, h); cam.aspect = w / h;
-    var narrow = w < 520;
-    cam.position.set(0, narrow ? 3.9 : 3.6, narrow ? 10.8 : 9.6); cam.lookAt(0, 1.9, -1.3);
-    cam.updateProjectionMatrix();
+    var w = stage.clientWidth || 360, h = Math.round(Math.min(680, Math.max(330, w * 0.92)));
+    renderer.setSize(w, h);
+    var halfW = 12.2, halfH = halfW * h / w;
+    if (halfH < 10.9) { halfH = 10.9; halfW = halfH * w / h; }
+    cam.left = -halfW; cam.right = halfW; cam.top = halfH; cam.bottom = -halfH;
+    cam.position.set(0, 40, 13); cam.lookAt(0, 0, -1.0); cam.updateProjectionMatrix();
   }
   size(); window.addEventListener('resize', size);
 
-  // ── interaction
-  var ray = new THREE.Raycaster(), ptr = new THREE.Vector2(), drag = null, turn = 0, picked = -1, canvas = renderer.domElement;
-  canvas.addEventListener('pointerdown', function (e) { drag = { x: e.clientX, t: turn, moved: 0 }; canvas.setPointerCapture(e.pointerId); });
-  canvas.addEventListener('pointermove', function (e) {
-    if (!drag) return; var dx = e.clientX - drag.x; drag.moved = Math.max(drag.moved, Math.abs(dx));
-    turn = Math.max(-0.7, Math.min(0.7, drag.t + dx * 0.005));
-  });
-  canvas.addEventListener('pointerup', function (e) {
-    var tap = drag && drag.moved < 6; drag = null; if (!tap) return;
-    var r = canvas.getBoundingClientRect();
-    ptr.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
-    ray.setFromCamera(ptr, cam);
-    var hit = ray.intersectObjects(people, true)[0], o = hit && hit.object;
-    while (o && o.userData.i === undefined) o = o.parent;
-    show(o ? o.userData.i : -1);
-  });
-  function show(i) {
-    picked = (picked === i) ? -1 : i;
-    if (picked < 0) { tip.hidden = true; return; }
-    var v = D.voters[picked], word = v.vote === true ? 'YES' : v.vote === false ? 'NO' : 'abstained';
-    tip.textContent = '';
-    var b = document.createElement('b'); b.textContent = v.name + ' · ' + word; tip.appendChild(b);
-    var a = document.createElement('span'); a.textContent = v.why; tip.appendChild(a);
-    var c = document.createElement('small'); c.textContent = v.acc; tip.appendChild(c);
-    tip.hidden = false;
-  }
-  Array.prototype.forEach.call(room.querySelectorAll('.seat'), function (btn) {
-    btn.addEventListener('click', function () { show(+btn.getAttribute('data-i')); });
-  });
+  // ── boot
+  (function boot() {
+    var ns = nowS(), wait = +(sget('Wait', true) || 0);
+    voteState.note = nextNote(); drawVote();
+    var Pt = (D.parties || []).filter(function (p) { return p.t > +(sget('Party') || 0) && ns - p.t < 172800; }).pop();
+    if (D.recess) { hemi.intensity = 0.55; sun.intensity = 0.45; }
+    if (wait && !D.recess) {
+      sdel('Wait', true);
+      if (D.lastVoteT && D.lastVoteT >= wait - 120 && D.verdict) { sdel('Tries', true); startHearing(0); return; }
+      if ((D.scanT || 0) < wait && ns < wait + 420) { CREW.forEach(function (n) { var u = P(n).userData, c = confSeats[n]; u.pos.copy(c.pos); u.rot = u.face = c.face; u.where = 'conf'; }); sset('Wait', String(wait), true); phase = { name: 'wait', t: 0 }; return; }
+      sdel('Tries', true); startWork(0, 'No setups this candle. Back to work, team!'); return;
+    }
+    if (D.verdict && D.lastVoteT && ns - D.lastVoteT < 900 && sget('Heard') !== String(D.lastVoteT) && !D.recess) { startHearing(0); return; }
+    if (Pt) { startParty(0, Pt); return; }
+    startWork(0);
+  })();
 
-  // ── choreography: stand → walk around the table to the speaking spot → vote → walk back → sit → gavel
-  var WALK = 2.2, STAGGER = 4.2, START = 1.0, TURN = 0.5 + WALK + 1.4 + WALK + 0.5;
-  var VERDICT_AT = START + (N - 1) * STAGGER + TURN + 0.4, CYCLE = VERDICT_AT + 6.5;
-  var VCOL = new THREE.Color(D.approved ? 0x53f0a6 : 0xff6b7c), CYAN = new THREE.Color(0x38e1ff);
-  function clamp(x) { return Math.max(0, Math.min(1, x)); }
-  function smooth(x) { x = clamp(x); return x * x * (3 - 2 * x); }
-  function pop(x) { x = clamp(x); var c = 1.6; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); }
-  function plan(i, c) {
-    var u = people[i].userData, tau = c - (START + i * STAGGER), t1 = 0.5, t2 = t1 + WALK, t3 = t2 + 1.4, t4 = t3 + WALK;
-    if (!D.verdict || tau < 0) return { pos: u.seat, sit: 1 };
-    if (tau < t1) return { pos: u.seat, sit: 1 - smooth(tau / t1) };
-    if (tau < t2) return { pos: along(u.out, smooth((tau - t1) / WALK)), sit: 0 };
-    if (tau < t3) return { pos: u.out[u.out.length - 1], sit: 0, at: true, k: tau - t2, spoke: tau > t2 + 0.25 };
-    if (tau < t4) return { pos: along(u.back, smooth((tau - t3) / WALK)), sit: 0, spoke: true };
-    return { pos: u.seat, sit: smooth((tau - t4) / 0.5), spoke: true };
-  }
-  t0 = performance.now(); lastT = 0;
-  function frame(now) {
-    if (!stage.offsetParent) { requestAnimationFrame(frame); return; }   // hidden (collapsed section): skip work
-    var t = (now - t0) / 1000, dt = Math.min(0.05, t - lastT); lastT = t;
-    if (!still) director(t, dt);
-    var hearing = phase.name === 'hearing' && !!D.verdict, formal = hearing || still;
-    var c = hearing ? t - phase.t : (still && D.verdict ? CYCLE - 3 : 0);
-    var deliberating = D.verdict && formal && c < CYCLE - 0.6;
-    var verdictOn = D.verdict && formal && c >= VERDICT_AT + 0.45 && c < CYCLE - 0.6;
-    var reacting = react && now / 1000 - react.t < REACT_LEN;
-    if (!formal) separate();
-    if (still && t > nextSay) { nextSay = t + 6; var si = Math.floor(Math.random() * N); speak(si, lineFor(D.voters[si].name)); }
-    if (stampEl) stampEl.classList.toggle('show', !!verdictOn);
-    world.rotation.y += (turn + (still ? 0 : Math.sin(t * 0.12) * 0.05) - world.rotation.y) * 0.06;
-
-    var speaker = -1;
-    people.forEach(function (g, i) {
-      var u = g.userData, p = formal ? plan(i, c) : steer(g, u, t, dt, reacting);
-      if (reacting && formal) p = { pos: u.seat, sit: 1 };   // reactions pause the hearing
-      if (hearing && p.at && p.k > 0.3 && u.spoke !== phase.t) {
-        u.spoke = phase.t; var vv = D.voters[i];
-        speak(i, (vv.vote === true ? 'YES. ' : vv.vote === false ? 'NO. ' : 'I pass. ') + (vv.why || ''), 2.8);
-      }
-      if (p.at) speaker = i;
-      u.prev.copy(g.position);
-      var drop = (u.hip - 0.52) * p.sit;
-      g.position.set(p.pos.x, -drop, p.pos.z);
-      var vx = (g.position.x - u.prev.x) / Math.max(dt, 1e-3), vz = (g.position.z - u.prev.z) / Math.max(dt, 1e-3);
-      var speed = Math.hypot(vx, vz);
-      var target = p.at ? Math.atan2(cam.position.x - g.position.x, cam.position.z - g.position.z) - world.rotation.y
-                 : speed > 0.15 ? Math.atan2(vx, vz) : (p.face !== undefined ? p.face : u.faceSeat);
-      var d = Math.atan2(Math.sin(target - u.yaw), Math.cos(target - u.yaw)); u.yaw += d * 0.12; g.rotation.y = u.yaw;
-      var stride = Math.min(1, speed / 0.9), ph = t * 8 + u.phase, sw = Math.sin(ph) * 0.6 * stride;
-      if (u.legL) {
-        u.legL.rotation.x = sw - 1.45 * p.sit; u.legR.rotation.x = -sw - 1.45 * p.sit;
-        u.legL.userData.joint.rotation.x = Math.max(0, -Math.sin(ph)) * 0.9 * stride + 1.45 * p.sit;
-        u.legR.userData.joint.rotation.x = Math.max(0, Math.sin(ph)) * 0.9 * stride + 1.45 * p.sit;
-      }
-      var raise = p.at ? pop((p.k - 0.15) / 0.45) * (1 - smooth((p.k - 1.1) / 0.3)) : 0;
-      if (u.armL) { u.armL.rotation.x = -sw * 0.7 - 0.45 * p.sit; u.armL.userData.joint.rotation.x = -0.25 * stride - 0.9 * p.sit; }
-      if (u.armR) { u.armR.rotation.x = sw * 0.7 * (1 - raise) - raise * 2.8 - 0.45 * p.sit;
-        u.armR.userData.joint.rotation.x = (-0.25 * stride - 0.9 * p.sit) * (1 - raise) - 0.15 * raise; }
-      g.position.y += Math.abs(Math.sin(ph)) * 0.03 * stride;
-      if (u.head) u.head.rotation.y = p.at ? 0 : (still ? 0 : 0.4 * Math.sin(t * 0.5 + u.phase * 3)) * (p.sit > 0.5 ? 1 : 0.3);
-      if (u.spin) u.spin.rotation.z = t * 1.8;
-      if (u.gyro) { u.gyro.rotation.y = t * 1.4; u.gyro.rotation.x = t * 0.7; }
-      if (u.hands) u.hands.rotation.z = -t * 1.2;
-      if (u.trail) u.trail.forEach(function (tp, k) {
-        var bk = 0.25 + k * 0.16;
-        tp.position.set(g.position.x - Math.sin(u.yaw) * bk * (0.3 + stride), 1.2 - k * 0.05, g.position.z - Math.cos(u.yaw) * bk * (0.3 + stride));
-        tp.visible = stride > 0.2;
-      });
-      // blink + speaking pulse
-      if (!still && t > u.blinkAt) { u.blinkAt = t + 2.5 + ((i * 1.7 + t) % 3); u.blinkEnd = t + 0.12; }
-      var blink = (!still && u.blinkEnd && t < u.blinkEnd) ? 0.15 : 1;
-      var talk = (p.at && p.k > 0.25 && p.k < 1.3) || u.talkUntil > t ? 0.5 + 0.5 * Math.sin(t * 22) : 0;
-      if (u.talkUntil > t && speed < 0.15 && !p.at && p.sit < 0.3 && u.armR) {            // talk with your hands
-        var gst = 0.5 + 0.5 * Math.sin(t * 2.6 + i); u.armR.rotation.x -= 0.55 * gst; u.armR.userData.joint.rotation.x -= 0.7 * gst;
-      }
-      u.glows.forEach(function (m) { m.scale.y = blink; });
-      u.faceGlow.material.opacity = 0.25 + talk * 0.6; u.faceGlow.scale.setScalar(0.3 + talk * 0.3);
-      if (u.mouth) u.mouth.scale.y = 1 + talk * 3.5;
-      var rk = react ? now / 1000 - react.t : 99;
-      if (rk < REACT_LEN) {
-        var fade = 1 - smooth((rk - (REACT_LEN - 0.8)) / 0.8), lift = smooth(rk / 0.6) * fade;
-        if (react.kind === 'cheers') {
-          var standUp = smooth(rk / 0.5) * fade;
-          g.position.y = -drop * (1 - standUp) + Math.abs(Math.sin(rk * 7 + i)) * 0.09 * lift;
-          if (u.legL) { u.legL.rotation.x *= 1 - standUp; u.legR.rotation.x *= 1 - standUp;
-            u.legL.userData.joint.rotation.x *= 1 - standUp; u.legR.userData.joint.rotation.x *= 1 - standUp; }
-          var toast = rk > 1.3 && rk < 1.7 ? 0.35 : 0;            // everyone leans in to clink
-          if (u.armR) { u.armR.rotation.x = -2.5 * lift + 0.15 * Math.sin(rk * 5 + i) * lift + toast * lift;
-            u.armR.userData.joint.rotation.x = -0.25 * lift; }
-          if (u.armL) { u.armL.rotation.x = -0.6 * lift * (0.5 + 0.5 * Math.sin(rk * 6 + i)); }
-          if (u.head) { u.head.rotation.x = -0.15 * lift; }
-          if (u.mouth) u.mouth.scale.set(1 + lift * 0.6, 1 + lift * 3, 1);
-          if (u.glass) u.glass.visible = lift > 0.05;
-          var face = Math.atan2(-g.position.x, -0.6 - g.position.z); var dd = Math.atan2(Math.sin(face - u.yaw), Math.cos(face - u.yaw));
-          u.yaw += dd * 0.1 * lift; g.rotation.y = u.yaw;
-        } else {
-          if (u.head) { u.head.rotation.x = 0.4 * lift; u.head.rotation.y = Math.sin(rk * 9 + i) * 0.35 * lift * (rk < 2.2 ? 1 : 0.3); }
-          if (u.armR) u.armR.rotation.x *= 1 - lift; if (u.armL) u.armL.rotation.x *= 1 - lift;
-          if (u.mouth) u.mouth.scale.set(1 - 0.3 * lift, 1, 1);
+  // ── loop
+  var last = performance.now() / 1000, t0 = last;
+  function tick() {
+    var now = performance.now() / 1000, dt = Math.min(0.05, now - last), t = now - t0; last = now;
+    people.forEach(function (g) {
+      var u = g.userData, walking = 0;
+      if (u.route.length) {
+        u.sit = Math.max(0, u.sit - dt * 3);
+        if (u.sit < 0.05) {
+          var tgt = u.route[0], d = tgt.clone().sub(u.pos); d.y = 0; var L = d.length(), step = 3.2 * dt;
+          if (L <= step) { u.pos.copy(tgt); u.route.shift(); } else { u.pos.add(d.multiplyScalar(step / L)); u.rot = Math.atan2(tgt.x - u.pos.x, tgt.z - u.pos.z); walking = 1; }
         }
       } else {
-        if (u.head) u.head.rotation.x = 0;
-        if (u.glass) u.glass.visible = false;
+        var dr = u.face - u.rot; while (dr > Math.PI) dr -= 2 * Math.PI; while (dr < -Math.PI) dr += 2 * Math.PI; u.rot += dr * Math.min(1, dt * 6);
+        if (u.wantSit) u.sit = Math.min(1, u.sit + dt * 2.5); else u.sit = Math.max(0, u.sit - dt * 3);
       }
-      if (p.dance) {
-        var bt = t * 6 + i * 1.3;
-        g.position.y = Math.abs(Math.sin(bt)) * 0.13;
-        if (u.armR) { u.armR.rotation.x = -2.7 + Math.sin(bt) * 0.35; u.armR.userData.joint.rotation.x = -0.2; }
-        if (u.armL) { u.armL.rotation.x = -2.6 + Math.cos(bt) * 0.4; u.armL.userData.joint.rotation.x = -0.2; }
-        if (u.legL) { u.legL.rotation.x = Math.sin(bt) * 0.3; u.legR.rotation.x = -Math.sin(bt) * 0.3; }
-        if (u.glass) u.glass.visible = true;
-        if (u.mouth) u.mouth.scale.set(1.4, 3, 1);
-        if (i === Math.floor(t / 2.4) % N) g.rotation.y = u.yaw + ((t % 2.4) / 2.4) * Math.PI * 2;      // take turns spinning
-      }
-      u.halo.visible = p.sit < 0.5;
-      var sel = picked === i ? 1.08 : 1; g.scale.setScalar(g.scale.x + (sel - g.scale.x) * 0.2);
-      u.halo.material.opacity = picked === i ? 0.95 : 0.4;
-      // vote sign + station ring
-      var sp = signs[i], showSign = deliberating && (p.spoke || (still && D.verdict)) && !(react && now / 1000 - react.t < REACT_LEN);
-      var k = showSign ? (p.at ? pop((p.k - 0.25) / 0.4) : 0.72) : 0;
-      sp.position.set(g.position.x, (p.at ? 2.35 : 2.1) + g.position.y + (p.sit ? -0.1 : 0), g.position.z);
-      sp.scale.set(0.8 * k + 0.001, 0.35 * k + 0.001, 1);
-      var rr = rings[i], lit = showSign && rr.vote !== null && rr.vote !== undefined;
-      var lc = rr.vote === true ? 0x53f0a6 : 0xff6b7c;
-      rr.mat.color.setHex(lit ? lc : 0x334466); rr.mat.opacity = lit ? 0.85 : 0.35;
-      rr.glow.material.color.setHex(lc); rr.glow.material.opacity = lit ? 0.35 + 0.1 * Math.sin(t * 4) : 0;
+      if (walking) { var dr2 = u.rot - g.rotation.y; while (dr2 > Math.PI) dr2 -= 2 * Math.PI; while (dr2 < -Math.PI) dr2 += 2 * Math.PI; g.rotation.y += dr2 * Math.min(1, dt * 12); }
+      else g.rotation.y = u.rot;
+      g.position.copy(u.pos);
+      var extra = now < (u.cheerUntil || 0) ? 'cheer' : now < (u.sadUntil || 0) ? 'sad' : now < (u.talkUntil || 0) ? 'talk' : (u.where === 'desk' && u.sit > 0.9 && phase.name === 'work') ? 'type' : (phase.name === 'party' && !u.route.length ? 'cheer' : null);
+      if (extra === 'cheer' && u.sit < 0.5) g.position.y = Math.abs(Math.sin(t * 7 + u.pos.x)) * 0.25;
+      pose(g, u.sit, walking, t, extra);
     });
-
-    var rkk = react ? now / 1000 - react.t : 99;
-    if (react && react.kind === 'cheers' && rkk > 1.45 && !react.burst) { react.burst = true; burst(); }
-    var nowP = now / 1000, confLeft = Math.max(confettiUntil - nowP, 0);
-    if (rkk < REACT_LEN + 3 || confLeft > 0) {
-      var cpos = confG.attributes.position;
-      for (var b = 0; b < confN; b++) {
-        if (cp[b * 3 + 1] < -10) continue;
-        cv[b][1] -= 6 * dt; cv[b][0] *= 0.985; cv[b][2] *= 0.985;
-        cp[b * 3] += cv[b][0] * dt; cp[b * 3 + 1] += Math.max(cv[b][1], -1.2) * dt; cp[b * 3 + 2] += cv[b][2] * dt;
-        if (cp[b * 3 + 1] < 0.02) { cp[b * 3 + 1] = 0.02; cv[b] = [0, 0, 0]; }
-      }
-      cpos.needsUpdate = true;
-      confetti.material.opacity = Math.max(rkk < REACT_LEN ? 1 : Math.max(0, 1 - (rkk - REACT_LEN) / 3), Math.min(1, confLeft / 2));
-    } else if (confetti.material.opacity > 0) {
-      confetti.material.opacity = 0; for (var b2 = 0; b2 < confN; b2++) cp[b2 * 3 + 1] = -50; confG.attributes.position.needsUpdate = true;
+    if (phase.name === 'work') workTick(t);
+    else if (phase.name === 'assemble') {
+      if (t > phase.readyAt && CREW.every(function (n) { return settled(n) && P(n).userData.where === 'conf'; })) { if (phase.then === 'hearing') startHearing(t); else if (phase.then === 'wait') phase = { name: 'wait', t: t }; else startWork(t, 'Nothing to vote on. As you were.'); }
     }
-    var clink = react && react.kind === 'cheers' ? Math.max(0, 1 - Math.abs(rkk - 1.5) / 0.6) : 0;
-    cheerLight.intensity = clink * 4;
-    if (react && react.kind === 'sad' && rkk < REACT_LEN) { holoLight.color.lerp(new THREE.Color(0xff6b7c), 0.08); }
-
-    // The Chair follows the speaker, then swings the gavel
-    var look = speaker >= 0 ? Math.atan2(people[speaker].position.x - judge.position.x, people[speaker].position.z - judge.position.z) * 0.6
-             : (still ? 0 : 0.25 * Math.sin(t * 0.35));
-    if (react && rkk < REACT_LEN) look = react.kind === 'cheers' ? 0 : Math.sin(rkk * 8) * 0.4 * (1 - rkk / REACT_LEN);
-    jhead.rotation.y += (look - jhead.rotation.y) * 0.08;
-    jhead.rotation.x = react && react.kind === 'cheers' && rkk < REACT_LEN ? Math.sin(rkk * 6) * 0.15 : 0;
-    halo.rotation.z = t * 0.6;
-    var gt = (D.verdict && formal) ? (c - VERDICT_AT) : -1;
-    if (hearing && gt > 0.5 && !phase.ruled) { phase.ruled = true; speak('chair', (D.approved ? 'Approved, ' : 'Rejected, ') + String(D.verdict).replace(/^\S+ /, '') + '. So ordered!', 3.2); }
-    var partyOn = phase.name === 'party' && phase.danceT;
-    disco.forEach(function (l, k) { l.intensity += ((partyOn ? 3 : 0) - l.intensity) * 0.08;
-      l.position.set(PARTY_C.x + Math.cos(t * 1.6 + k * 2.1) * 2.2, 3.2, PARTY_C.z + Math.sin(t * 1.6 + k * 2.1) * 1.6); });
-    if (partyOn) jhead.rotation.x = Math.sin(t * 6) * 0.18;
-    placeBubbles(nowP);
-    if (!frame._pl || t - frame._pl > 0.5) { frame._pl = t; pill.textContent = phaseLabel(nowS()); pill.className = 'phasepill ' + phase.name; }
-    var swing = gt < 0 ? 0 : gt < 0.35 ? -smooth(gt / 0.35) * 1.1 : gt < 0.5 ? -1.1 + smooth((gt - 0.35) / 0.15) * 1.5 : 0.4 - smooth((gt - 0.5) / 0.6) * 0.4;
-    arm.rotation.x = still ? 0 : swing;
-    var flash = verdictOn ? Math.max(0, 1 - (c - VERDICT_AT - 0.45) / 1.6) : 0;
-    gglow.material.opacity = flash * 0.9;
-    verdictLight.color.copy(VCOL); verdictLight.intensity = verdictOn ? 0.6 + flash * 3.5 : 0;
-    var hc = verdictOn ? VCOL : CYAN;
-    holoLight.color.lerp(hc, 0.1); rim.material.color.lerp(hc, 0.1); lens.material.color.lerp(hc, 0.1);
-    beam.material.color.lerp(hc, 0.1); beam.material.opacity = 0.07 + flash * 0.12;
-
-    // hologram: faces the viewer, gentle hover, scanline + flicker
-    holo.rotation.y = -world.rotation.y * 0.85;
-    holo.position.y = 3.7 + (still ? 0 : Math.sin(t * 1.1) * 0.04);
-    holoMat.opacity = still ? 0.95 : 0.88 + 0.07 * Math.sin(t * 13) * Math.sin(t * 3.1);
-    scan.position.y = still ? -0.3 : ((t * 0.5) % 1) * 1.64 - 0.82;
-    wallTex.offset.x = still ? 0 : t * 0.004; tickTex.offset.x = still ? 0 : t * 0.02;
-    var pos = dust.geometry.attributes.position;
-    if (!still) { for (var q = 0; q < dustN; q++) { var yy = pos.getY(q) + 0.12 * dt; pos.setY(q, yy > 5.6 ? 0.1 : yy); pos.setX(q, pos.getX(q) + Math.sin(t + q) * 0.0015); } pos.needsUpdate = true; }
-
-    renderer.render(scene, cam);
-    requestAnimationFrame(frame);
+    else if (phase.name === 'hearing') hearingTick(t);
+    else if (phase.name === 'wait') waitTick(t);
+    else if (phase.name === 'party') { confetti.forEach(function (m) { m.position.y -= m.userData.v * 60 * dt; m.rotation.x += dt * 4; m.rotation.z += dt * 3; if (m.position.y < 0.05) m.position.y = 6 + Math.random() * 4; }); if (t > phase.t + 14) endParty(t); }
+    if (Math.floor(t) !== Math.floor(t - dt) && phase.name === 'work') { voteState.note = nextNote(); drawVote(); }
+    pill.textContent = phaseLabel(); pill.className = 'phasepill ' + phase.name;
+    renderer.render(sc, cam); placeOverlays(now);
+    requestAnimationFrame(tick);
   }
-  requestAnimationFrame(frame);
+  window.__office = { people: people, ph: function () { return phase; } };
+  requestAnimationFrame(tick);
 })();
+
 """
 
 
@@ -3686,6 +3280,8 @@ details {{ color:var(--muted) }} .fine {{ color:var(--muted); font-size:12px; ma
 .bub::after {{ content:""; position:absolute; bottom:-6px; left:var(--tx, 50%); width:10px; height:10px; background:#0d1322;
   border-right:1.5px solid var(--bc); border-bottom:1.5px solid var(--bc); transform:translateX(-50%) rotate(45deg) }}
 .bub b {{ display:block; font-size:9.5px; letter-spacing:.07em; text-transform:uppercase; color:var(--bc); margin-bottom:1px }}
+.vtag {{ position:absolute; font:800 11px/1 ui-sans-serif,-apple-system,sans-serif; padding:4px 7px; border-radius:7px; pointer-events:none; box-shadow:0 3px 10px #0007 }}
+.vtag.yes {{ background:#3ee6a1; color:#062a1c }} .vtag.no {{ background:#ff5468; color:#fff }} .vtag.abs {{ background:#9aa2c2; color:#111 }}
 .phasepill {{ position:absolute; left:10px; bottom:10px; pointer-events:none; font:700 11px/1 ui-sans-serif,-apple-system,sans-serif;
   color:#eaf2ff; background:#0d1322cc; border:1px solid #38e1ff66; padding:6px 9px; border-radius:99px; letter-spacing:.02em }}
 .phasepill.hearing {{ border-color:#f4c84a; color:#f4c84a }} .phasepill.party {{ border-color:#ff4fd8; color:#ffd84a }}
@@ -3701,7 +3297,7 @@ details {{ color:var(--muted) }} .fine {{ color:var(--muted); font-size:12px; ma
   border-radius:99px; padding:9px 13px; cursor:pointer }}
 .roomctl button:focus-visible {{ outline:2px solid #f4c84a; outline-offset:2px }}
 @media (prefers-reduced-motion: reduce) {{ .bub, .partybanner {{ transition:none; animation:none }} }}
-.stage canvas {{ display:block; width:100% !important; cursor:grab }}
+.stage canvas {{ display:block; width:100% !important; cursor:pointer }}
 .is3d .stage {{ display:block }}
 .is3d .table, .is3d .char, .is3d .seat .sign {{ display:none }}
 .is3d .seats {{ margin-top:-4px }}
