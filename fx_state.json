@@ -2,11 +2,11 @@
  "account": {
   "balance": 507.11,
   "currency": "USD",
-  "margin_avail": 99850.0048,
-  "nav": 502.6522,
-  "oanda_nav": 100001.3769,
-  "unrealized": -4.4578,
-  "updated": 1792171514.021321
+  "margin_avail": 99752.1699,
+  "nav": 503.2339,
+  "oanda_nav": 100002.0226,
+  "unrealized": -3.8760999999999997,
+  "updated": 1792171816.939332
  },
  "bot_username": "EVaultFX_bot",
  "chat_id": "7590441188",
@@ -4488,67 +4488,6 @@
   {
    "kind": "event",
    "lines": [],
-   "ok": null,
-   "t": 1792136417.04771,
-   "text": "GBP/JPY BUY: stop moved to lock in about +1.9R (+$9.80). It keeps following the price.",
-   "title": "GBP/JPY stop moved",
-   "verdict": null,
-   "who": "Risk"
-  },
-  {
-   "kind": "scan",
-   "lines": [
-    {
-     "say": "\u25bc ADX 15, RSI 46: trend too weak, waiting",
-     "vote": null,
-     "who": "USD/JPY"
-    },
-    {
-     "say": "\u25b2 ADX 25, RSI 66: in a trade",
-     "vote": null,
-     "who": "GBP/JPY"
-    },
-    {
-     "say": "\u25b2 ADX 18, RSI 59: in a trade",
-     "vote": null,
-     "who": "EUR/JPY"
-    },
-    {
-     "say": "\u25bc ADX 29, RSI 57: trending, waiting for a pullback",
-     "vote": null,
-     "who": "AUD/JPY"
-    },
-    {
-     "say": "\u25b2 ADX 26, RSI 73: in a trade",
-     "vote": null,
-     "who": "GBP/USD"
-    },
-    {
-     "say": "\u25bc ADX 30, RSI 61: trending, waiting for a pullback",
-     "vote": null,
-     "who": "AUD/USD"
-    },
-    {
-     "say": "\u25bc ADX 25, RSI 36: trending, waiting for a pullback",
-     "vote": null,
-     "who": "USD/CHF"
-    },
-    {
-     "say": "\u25b2 ADX 19, RSI 62: trending, waiting for a pullback",
-     "vote": null,
-     "who": "EUR/USD"
-    }
-   ],
-   "ok": null,
-   "t": 1792136722.7288318,
-   "text": null,
-   "title": "Scanned 8 markets: 1 setup on the latest candle",
-   "verdict": null,
-   "who": null
-  },
-  {
-   "kind": "event",
-   "lines": [],
    "ok": true,
    "t": 1792137020.8912594,
    "text": "GBP/JPY BUY closed +$8.46 (+1.67R). Record 13W\u201314L.",
@@ -7178,6 +7117,67 @@
    ],
    "ok": null,
    "t": 1792171523.9390314,
+   "text": null,
+   "title": "Scanned 8 markets: 3 setups on the latest candle",
+   "verdict": null,
+   "who": null
+  },
+  {
+   "kind": "event",
+   "lines": [],
+   "ok": null,
+   "t": 1792171818.941129,
+   "text": "\u2615 Taking a break: all 3 trade slots are full. Back as soon as one closes.",
+   "title": "Council on break",
+   "verdict": null,
+   "who": "Chair"
+  },
+  {
+   "kind": "scan",
+   "lines": [
+    {
+     "say": "\u25bc ADX 12, RSI 59: trend too weak, waiting",
+     "vote": null,
+     "who": "USD/JPY"
+    },
+    {
+     "say": "\u25b2 ADX 41, RSI 67: trending, waiting for a pullback",
+     "vote": null,
+     "who": "GBP/JPY"
+    },
+    {
+     "say": "\u25b2 ADX 27, RSI 54: in a trade",
+     "vote": null,
+     "who": "EUR/JPY"
+    },
+    {
+     "say": "\u25bc ADX 22, RSI 56: trending, waiting for a pullback",
+     "vote": null,
+     "who": "AUD/JPY"
+    },
+    {
+     "say": "\u25b2 ADX 39, RSI 55: in a trade",
+     "vote": null,
+     "who": "GBP/USD"
+    },
+    {
+     "say": "\u25bc ADX 25, RSI 50: in a trade",
+     "vote": null,
+     "who": "AUD/USD"
+    },
+    {
+     "say": "\u25bc ADX 30, RSI 47: trending, waiting for a pullback",
+     "vote": null,
+     "who": "USD/CHF"
+    },
+    {
+     "say": "\u25b2 ADX 26, RSI 46: trending, waiting for a pullback",
+     "vote": null,
+     "who": "EUR/USD"
+    }
+   ],
+   "ok": null,
+   "t": 1792171831.0216055,
    "text": null,
    "title": "Scanned 8 markets: 3 setups on the latest candle",
    "verdict": null,
@@ -9824,8 +9824,8 @@
  },
  "last_daily": "2026-10-15",
  "last_deploy": 1792171525.900198,
- "last_full_run": 1792171514.021321,
- "last_run": 1792171514.021321,
+ "last_full_run": 1792171816.939332,
+ "last_run": 1792171816.939332,
  "last_vote": {
   "approved": true,
   "ask": 0,
@@ -13297,7 +13297,7 @@
   ],
   "fetched": 1792153216.3013327
  },
- "on_break": null,
+ "on_break": "all 3 trade slots are full. Back as soon as one closes",
  "pairs": {
   "AUD_JPY": {
    "adx": 22.31366492582967,
@@ -13343,7 +13343,7 @@
    },
    "rsi": 49.60839507573414,
    "setup": "pullback",
-   "spread_pips": 1.2000000000000899,
+   "spread_pips": 1.2999999999996348,
    "tradeable": true,
    "trend": -1
   },
@@ -13368,7 +13368,7 @@
    },
    "rsi": 54.43129036702461,
    "setup": "pullback",
-   "spread_pips": 2.6999999999986812,
+   "spread_pips": 2.7999999999991587,
    "tradeable": true,
    "trend": 1
   },
@@ -13391,7 +13391,7 @@
    },
    "rsi": 45.63372101829332,
    "setup": null,
-   "spread_pips": 1.7000000000000348,
+   "spread_pips": 1.5999999999993797,
    "tradeable": true,
    "trend": 1
   },
@@ -13416,7 +13416,7 @@
    },
    "rsi": 67.30446322270393,
    "setup": null,
-   "spread_pips": 4.300000000000637,
+   "spread_pips": 4.100000000002524,
    "tradeable": true,
    "trend": 1
   },
@@ -13430,7 +13430,7 @@
    "prec": 5,
    "ready": {
     "dir": 1,
-    "in_trade": false,
+    "in_trade": true,
     "of": 6,
     "passed": 5,
     "session": true,
@@ -13492,7 +13492,7 @@
    },
    "rsi": 47.063450530310156,
    "setup": null,
-   "spread_pips": 1.60000000000049,
+   "spread_pips": 1.5999999999993797,
    "tradeable": true,
    "trend": -1
   },
@@ -13508,14 +13508,16 @@
     "dir": 1,
     "in_trade": false,
     "of": 6,
-    "passed": 6,
+    "passed": 5,
     "session": true,
     "tf": "M15",
-    "waiting": []
+    "waiting": [
+     "a pullback to the trend line or a fresh crossover"
+    ]
    },
    "rsi": 59.32558816346612,
    "setup": null,
-   "spread_pips": 1.9000000000005457,
+   "spread_pips": 1.5999999999991132,
    "tradeable": true,
    "trend": -1
   }
@@ -14059,8 +14061,8 @@
      "dir": -1,
      "entry": 1.12311,
      "hs": 7.999999999996898e-05,
-     "last_ts": 1792170900,
-     "now_r": 0.33,
+     "last_ts": 1792171800,
+     "now_r": 0.36,
      "risk": 0.001874999999999849,
      "stop": 1.124985,
      "t": "2026-10-16T15:45:00",
@@ -14167,15 +14169,15 @@
   }
  },
  "paper_bar": {
-  "AUD_JPY": "2026-10-16T17:00:00",
-  "AUD_USD": "2026-10-16T17:00:00",
-  "EUR_JPY": "2026-10-16T17:00:00",
-  "EUR_USD": "2026-10-16T17:00:00",
-  "GBP_JPY": "2026-10-16T17:00:00",
-  "GBP_USD": "2026-10-16T17:00:00",
+  "AUD_JPY": "2026-10-16T17:15:00",
+  "AUD_USD": "2026-10-16T17:15:00",
+  "EUR_JPY": "2026-10-16T17:15:00",
+  "EUR_USD": "2026-10-16T17:15:00",
+  "GBP_JPY": "2026-10-16T17:15:00",
+  "GBP_USD": "2026-10-16T17:15:00",
   "USD_CAD": "2026-10-16T02:00:00",
-  "USD_CHF": "2026-10-16T17:00:00",
-  "USD_JPY": "2026-10-16T17:00:00"
+  "USD_CHF": "2026-10-16T17:15:00",
+  "USD_JPY": "2026-10-16T17:15:00"
  },
  "parties": [
   {
@@ -14608,7 +14610,7 @@
    "entry": 0.69603,
    "opened": "2026-10-16T07:50:17",
    "pair": "AUD_USD",
-   "price": 0.6938500000000001,
+   "price": 0.694045,
    "r0": 0.002630000000000021,
    "risk": 5.21,
    "setup": "London breakout",
@@ -14616,7 +14618,7 @@
    "tf": "LB",
    "tp": 0.699965,
    "units": 1979,
-   "upl": -4.433,
+   "upl": -4.0767,
    "votes": {
     "Doubt": true,
     "Momentum": false,
@@ -14626,12 +14628,12 @@
    }
   },
   "347": {
-   "best": 177.4865,
+   "best": 177.531,
    "dir": 1,
    "entry": 177.475,
    "opened": "2026-10-16T17:20:14",
    "pair": "EUR_JPY",
-   "price": 177.4865,
+   "price": 177.531,
    "r0": 0.40537052237928606,
    "risk": 5.03,
    "setup": "pullback",
@@ -14639,7 +14641,7 @@
    "tf": "H1",
    "tp": 178.08405578356894,
    "units": 1963,
-   "upl": -0.0248,
+   "upl": 0.4964,
    "votes": {
     "Doubt": true,
     "Momentum": false,
@@ -14649,11 +14651,12 @@
    }
   },
   "353": {
+   "best": 1.33155,
    "dir": 1,
    "entry": 1.33155,
    "opened": "2026-10-16T17:25:14",
    "pair": "GBP_USD",
-   "price": 1.33155,
+   "price": 1.331455,
    "r0": 0.0033973321231419717,
    "risk": 5.03,
    "setup": "pullback",
@@ -14661,7 +14664,7 @@
    "tf": "H1",
    "tp": 1.336625998184713,
    "units": 1479,
-   "upl": 0.0,
+   "upl": -0.2958,
    "votes": {
     "Doubt": true,
     "Momentum": false,
