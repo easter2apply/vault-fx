@@ -42,6 +42,30 @@ def cnt(k):
     CNT[k] = CNT.get(k, 0) + 1
 
 
+def confirm(bars, i, d, a, e200, mode):
+    """Returns (first confirmation candle, entry candle) or None."""
+    side = lambda k: (bars[k]["c"] - e200[k]) * d > 0
+    if mode == "strict2":
+        for s in (i, i + 1):
+            if strong(bars[s], d, a) and strong(bars[s + 1], d, a) and side(s + 1):
+                return s, s + 1
+    elif mode == "2of4":
+        st = [k for k in range(i, i + 4) if strong(bars[k], d, a)]
+        if len(st) >= 2 and side(st[1]):
+            return st[0], st[1]
+    elif mode == "engulf":
+        for s in (i, i + 1, i + 2):
+            b = bars[s]; body = (b["c"] - b["o"]) * d; rng = b["h"] - b["l"]
+            if body > 0 and rng > 0 and body >= 0.6 * rng and body >= 0.6 * a and side(s):
+                return s, s
+    elif mode == "combined":
+        for s in (i, i + 1):
+            b1, b2 = bars[s], bars[s + 1]
+            if (b1["c"] - b1["o"]) * d > 0 and (b2["c"] - b2["o"]) * d > 0 and (b2["c"] - b1["o"]) * d >= 0.6 * a and side(s + 1):
+                return s, s + 1
+    return None
+
+
 def run(pair, bars, v):
     atr = zl.atr_list(bars)
     e200 = zl.ema([b["c"] for b in bars], 200)
@@ -50,7 +74,8 @@ def run(pair, bars, v):
     trades, busy, zi, live = [], 0, 0, []
     hi_i = lo_i = 0
     SLOPE_N = 50
-    for i in range(260, len(bars) - 4):
+    hdir = v.get("hdir_by_pair", {}).get(pair)
+    for i in range(260, len(bars) - 6):
         while zi < len(zones) and zones[zi]["known"] <= i:
             live.append(zones[zi]); zi += 1
         b = bars[i]
@@ -66,10 +91,13 @@ def run(pair, bars, v):
         if abs(slope) < v["slope"]:
             continue
         d = 1 if slope > 0 else -1
+        if hdir is not None and hdir[i] != d:
+            continue
         cnt("1 EMA sloped")
         # price was on the trend side, and this candle taps the EMA exactly
         prev_side = all((bars[j]["c"] - e200[j]) * d > 0 for j in range(i - 3, i))
-        tap = (b["l"] <= e) if d == 1 else (b["h"] >= e)
+        nr = v.get("near", 0) * a
+        tap = (b["l"] <= e + nr) if d == 1 else (b["h"] >= e - nr)
         if not (prev_side and tap):
             continue
         cnt("2 tapped EMA from trend side")
@@ -80,14 +108,11 @@ def run(pair, bars, v):
                 continue
         cnt("3 EMA inside a zone")
         # two convincing candles: the tap candle itself can be the 1st, or the next one
-        c1 = None
-        for s in (i, i + 1):
-            if strong(bars[s], d, a) and strong(bars[s + 1], d, a) and (bars[s + 1]["c"] - e200[s + 1]) * d > 0:
-                c1 = s; break
-        if c1 is None:
+        cc = confirm(bars, i, d, a, e200, v.get("confirm", "strict2"))
+        if cc is None:
             continue
-        cnt("4 two strong candles")
-        c2 = c1 + 1
+        cnt("4 confirmation candles")
+        c1, c2 = cc
         entry = bars[c2]["c"]
         stop = bars[c1]["l"] if d == 1 else bars[c1]["h"]
         stop -= d * bars[c2]["sp"]
@@ -114,45 +139,82 @@ def run(pair, bars, v):
     return trades
 
 
-VARIANTS = {
-    "Her exact rules, gentle slope (EMA moved 0.5 ATR / 50 candles)": {"zone": True, "slope": 0.5, "min_rr": 0.0},
-    "Her exact rules, clear slope (1 ATR / 50 candles)": {"zone": True, "slope": 1.0, "min_rr": 0.0},
-    "Her exact rules, steep slope (2 ATR / 50 candles)": {"zone": True, "slope": 2.0, "min_rr": 0.0},
-    "Clear slope + only trades with TP at least 1R away": {"zone": True, "slope": 1.0, "min_rr": 1.0},
-    "No zone needed, clear slope": {"zone": False, "slope": 1.0, "min_rr": 0.0},
-    "No zone needed, clear slope, TP 1R+": {"zone": False, "slope": 1.0, "min_rr": 1.0},
-}
+BASE = {"zone": True, "slope": 1.0, "min_rr": 0.0}
+MAJORS = ["EUR", "GBP", "USD", "JPY", "AUD", "NZD", "CAD", "CHF"]
+
+
+def htf_dirs(m5):
+    """For each 5-min candle: the slope direction of the last completed 15-min 200 EMA (0 if flat)."""
+    m15, idx = [], []
+    for i, b in enumerate(m5):
+        key = b["t"][:14] + f"{int(b['t'][14:16]) // 15 * 15:02d}"
+        if not m15 or m15[-1]["k"] != key:
+            m15.append({"k": key, "o": b["o"], "h": b["h"], "l": b["l"], "c": b["c"]})
+        else:
+            x = m15[-1]; x["h"] = max(x["h"], b["h"]); x["l"] = min(x["l"], b["l"]); x["c"] = b["c"]
+        idx.append(len(m15) - 1)
+    atr = zl.atr_list(m15); e = zl.ema([x["c"] for x in m15], 200)
+    dirs15 = [0] * len(m15)
+    for k in range(250, len(m15)):
+        sl = (e[k] - e[k - 50]) / atr[k] if atr[k] else 0
+        dirs15[k] = 1 if sl >= 1 else -1 if sl <= -1 else 0
+    return [dirs15[idx[i] - 1] if idx[i] > 0 else 0 for i in range(len(m5))]
 
 
 def main():
     split = (datetime.now(timezone.utc) - timedelta(days=30 * MONTHS // 3)).strftime("%Y-%m-%dT%H:%M:%S")
     report = {"split": split, "results": {}}
-    for gran in ("M5", "M15"):
-        data = {}
-        for p in PAIRS:
-            try:
-                data[p] = zl.fetch(p, gran)
-                print(gran, p, len(data[p]), "bars")
-            except Exception as ex:
-                print(gran, p, "skipped", ex)
-        for name, v in VARIANTS.items():
-            tr = []
-            CNT.clear()
-            for p, m in data.items():
-                tr += run(p, m, v)
-            print("   funnel:", dict(sorted(CNT.items())))
-            st = zl.stats(tr, split)
-            st["funnel"] = dict(sorted(CNT.items()))
-            st["by_pair"] = {p: zl.stats([x for x in tr if x["pair"] == p], split)["all"] for p in data}
-            hrs = {}
-            for x in tr:
-                hrs.setdefault(x["hour_et"] // 4 * 4, []).append(x["r"])
-            st["by_time_et"] = {f"{h:02d}-{h+4:02d}": {"n": len(r), "avg": round(stt.mean(r), 3)} for h, r in sorted(hrs.items())}
-            report["results"][f"{gran} | {name}"] = st
-            a = st["all"]
-            print(f"{gran} {name:62} n={a.get('n',0):4} win={a.get('win',0):.0%} avg={a.get('avg',0):+.3f}R tot={a.get('total',0):+.1f} "
-                  f"t={a.get('t',0)} | unseen n={st['unseen'].get('n',0)} avg={st['unseen'].get('avg',0):+.3f}")
-    json.dump(report, open("ema200_lab.json", "w"), indent=1)
+    inst = zl.api.instruments()
+    allp = sorted(n for n, i in inst.items() if i.get("type") == "CURRENCY"
+                  and n.split("_")[0] in MAJORS and n.split("_")[1] in MAJORS)
+    extra = [p for p in allp if p not in PAIRS]
+    cache = {}
+
+    def get(gran, pairs):
+        out = {}
+        for p in pairs:
+            if (gran, p) not in cache:
+                try:
+                    cache[(gran, p)] = zl.fetch(p, gran)
+                except Exception as ex:
+                    print(gran, p, "skipped", ex); cache[(gran, p)] = None
+            if cache[(gran, p)]:
+                out[p] = cache[(gran, p)]
+        return out
+
+    def test(label, data, v):
+        CNT.clear(); tr = []
+        for p, m in data.items():
+            tr += run(p, m, v)
+        st = zl.stats(tr, split)
+        st["funnel"] = dict(sorted(CNT.items()))
+        st["by_pair"] = {p: zl.stats([x for x in tr if x["pair"] == p], split)["all"] for p in data}
+        report["results"][label] = st
+        a = st["all"]
+        print(f"{label:70} n={a.get('n',0):4} win={a.get('win',0):.0%} avg={a.get('avg',0):+.3f}R tot={a.get('total',0):+.1f} "
+              f"t={a.get('t',0)} | unseen n={st['unseen'].get('n',0)} avg={st['unseen'].get('avg',0):+.3f}", flush=True)
+        json.dump(report, open("ema200_lab.json", "w"), indent=1)
+
+    m15 = get("M15", PAIRS)
+    test("0. Her rules as-is (15m, 8 pairs)", m15, BASE)
+    test("1a. 2 strong candles anywhere in next 4", m15, {**BASE, "confirm": "2of4"})
+    test("1b. 1 big engulfing-style candle is enough", m15, {**BASE, "confirm": "engulf"})
+    test("1c. 2 candles that move strong together", m15, {**BASE, "confirm": "combined"})
+    test("5. 'Almost' tap counts (within 0.1 ATR)", m15, {**BASE, "near": 0.1})
+    test("5+1a. Almost tap + 2 of next 4", m15, {**BASE, "near": 0.1, "confirm": "2of4"})
+    for g in ("M30", "H1"):
+        d = get(g, PAIRS)
+        test(f"3. {g} chart, her rules", d, BASE)
+        test(f"3. {g} chart, 2 of next 4", d, {**BASE, "confirm": "2of4"})
+    m5 = get("M5", PAIRS)
+    hd = {p: htf_dirs(m) for p, m in m5.items()}
+    test("4. 5m, her rules, 15m EMA must slope same way", m5, {**BASE, "hdir_by_pair": hd})
+    test("4. 5m, 2 of next 4, 15m EMA agrees", m5, {**BASE, "confirm": "2of4", "hdir_by_pair": hd})
+    mx = get("M15", extra)
+    print("extra pairs:", list(mx))
+    test("2. 20 MORE pairs (15m), her rules", mx, BASE)
+    test("2. 20 MORE pairs (15m), 2 of next 4", mx, {**BASE, "confirm": "2of4"})
+    test("2. 20 MORE pairs (15m), engulf", mx, {**BASE, "confirm": "engulf"})
 
 
 if __name__ == "__main__":
