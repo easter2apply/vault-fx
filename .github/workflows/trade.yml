@@ -35,11 +35,18 @@ jobs:
           OANDA_ENV: ${{ vars.OANDA_ENV }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         run: python vault_fx.py --out site/index.html --mode "${{ inputs.mode || 'auto' }}"
+      - name: 200 EMA Tracker (side test, pretend money)
+        continue-on-error: true
+        env:
+          OANDA_API_TOKEN: ${{ secrets.OANDA_API_TOKEN }}
+          OANDA_ACCOUNT_ID: ${{ secrets.OANDA_ACCOUNT_ID }}
+        run: python ema_tracker.py --out site/ema.html
       - name: Save bot memory
         run: |
           git config user.name "vault-fx"
           git config user.email "vault-fx@users.noreply.github.com"
           git add fx_state.json 2>/dev/null || true
+          git add ema_state.json 2>/dev/null || true
           git diff --cached --quiet || (git commit -m "Update state" && git pull --rebase && git push)
       - if: steps.bot.outputs.deploy == 'true'
         uses: actions/configure-pages@v5
