@@ -576,6 +576,16 @@ def crowded(trades, pair, d):
     return worst
 
 
+def conflict(trades, pair, d):
+    """The open trade this one would fight, as (currency, open_pair, open_way), or None.
+    Buying EUR/USD bets the dollar goes DOWN, so buying USD/JPY (dollar UP) would fight it. Selling USD/JPY is fine."""
+    for cur, way in exposure(pair, d).items():
+        for m in trades:
+            if exposure(m["pair"], m["dir"]).get(cur) == -way:
+                return cur, m["pair"], -way
+    return None
+
+
 def usd_direction(pair, d):
     """+1 if the trade wins when the dollar rises, −1 if it wins when the dollar falls."""
     return d if pair.startswith("USD_") else -d
@@ -1674,6 +1684,11 @@ def run(log, full=True):
             cur, way, same = crowded(st["trades"].values(), pair, a["trend"])
             if same >= MAX_SAME_DOLLAR_BETS:
                 reasons.append(f"already {same} trades betting the {CUR_NAMES.get(cur, cur)} goes {'up' if way == 1 else 'down'}")
+            fight = conflict(st["trades"].values(), pair, a["trend"])
+            if fight:
+                fc, fp, fw = fight
+                reasons.append(f"would fight the open {NAMES.get(fp, fp)} trade (that one bets the {CUR_NAMES.get(fc, fc)} goes "
+                               f"{'up' if fw == 1 else 'down'}, this one bets it goes {'down' if fw == 1 else 'up'})")
             ts = now.timestamp()
             hit = next((e for e in news if e["cur"] in pair_currencies(pair)
                         and e["t"] - NEWS_BEFORE_MIN * 60 <= ts <= e["t"] + NEWS_AFTER_MIN * 60), None)
@@ -3384,7 +3399,7 @@ details {{ color:var(--muted) }} .fine {{ color:var(--muted); font-size:12px; ma
 <p class="fine">Strategy: the EMA20/EMA50 trend on 1-hour or 15-minute candles sets the direction (15-minute setups must also agree with the 1-hour and 4-hour trends); a fresh crossover or a pullback to the EMA20 creates a setup.
 The council (Quant = ADX strength, Risk = spread/exposure/limits, Momentum = MACD, Time = RSI + trading hours, Doubt = 4-hour trend)
 must approve with Risk in favor (4 of 5 at equal weights; voters with better records count more once they have {LEARN_MIN_CALLS} scored calls).
-Pair + setup combos that average below 0R over their last {BENCH_MIN} results are benched until they recover. No new trades around high-impact news. Each trade risks {RISK_PCT:.0%} of the account with a stop at {STOP_ATR:g}× ATR and a target at {TARGET_ATR:g}× ATR;
+Pair + setup combos that average below 0R over their last {BENCH_MIN} results are benched until they recover. No new trades around high-impact news. Never bets both ways on one currency (e.g. long EUR/USD = dollar down, so no USD/JPY buys while it's open; USD/JPY sells are OK), and at most {MAX_SAME_DOLLAR_BETS} trades betting the same way on any currency. Each trade risks {RISK_PCT:.0%} of the account with a stop at {STOP_ATR:g}× ATR and a target at {TARGET_ATR:g}× ATR;
 the stop moves to entry at +{BREAKEVEN_AT_R:g}R and then trails {TRAIL_DIST_R:g}R behind the best price; trades with no locked-in profit close after {MAX_HOLD_HOURS}h (any trade after {MAX_HOLD_PROFIT_HOURS}h). Limits: {MAX_OPEN_TRADES} open trades, {DAILY_LOSS_LIMIT:.0%} daily loss stop, {MAX_DRAWDOWN:.0%} drawdown pause.
 Rejected setups are scored against later prices so "Who called it?" learns from both sides. Forex is leveraged and most retail accounts lose money.
 This is software, not financial advice.</p>
