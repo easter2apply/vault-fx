@@ -2,11 +2,11 @@
  "account": {
   "balance": 503.24,
   "currency": "USD",
-  "margin_avail": 99745.4884,
-  "nav": 503.8976,
-  "oanda_nav": 100002.631,
-  "unrealized": 0.6576,
-  "updated": 1792109415.965011
+  "margin_avail": 99745.3697,
+  "nav": 503.79130000000004,
+  "oanda_nav": 100002.4935,
+  "unrealized": 0.5513000000000001,
+  "updated": 1792109715.932675
  },
  "bot_username": "EVaultFX_bot",
  "chat_id": "7590441188",
@@ -690,8 +690,8 @@
   }
  ],
  "council_record": {
-  "right": 207,
-  "total": 401
+  "right": 208,
+  "total": 402
  },
  "d1": {
   "AUD_USD": {
@@ -6252,7 +6252,7 @@
     }
    ],
    "ok": null,
-   "t": 1792109419.939117,
+   "t": 1792109721.253249,
    "text": null,
    "title": "Scanned 6 markets: 0 setups on the latest candle",
    "verdict": null,
@@ -6261,11 +6261,6 @@
  ],
  "grading_v": 2,
  "hindsight": [
-  {
-   "kind": "vote",
-   "t": 1792079123.8552139,
-   "text": "Council rejected USD/CAD SELL (pullback 15m) 3\u20132. In my files, 15-minute pullback setups are GUILTY (-0.20R over 62,515). Meanwhile on paper: New York opening range is holding a SELL (-0.2R); USD/CAD midday (lab rule) is holding a SELL (+0.5R)."
-  },
   {
    "kind": "vote",
    "t": 1792080025.788941,
@@ -6460,15 +6455,14 @@
    "kind": "paper",
    "t": 1792097119.3913271,
    "text": "New York opening range closed its paper BUY on USD/JPY: +0.01R (time limit)."
+  },
+  {
+   "kind": "paper",
+   "t": 1792109721.25292,
+   "text": "Quiet-hours snap-back would SELL USD/CHF now: stretched above its band, RSI 74."
   }
  ],
  "history": [
-  {
-   "right": true,
-   "t": 1791839718.9475856,
-   "trade": false,
-   "won": false
-  },
   {
    "right": true,
    "t": 1791839718.9476135,
@@ -8862,6 +8856,12 @@
    "t": 1792094429.1727347,
    "trade": false,
    "won": false
+  },
+  {
+   "right": true,
+   "t": 1792109719.6869256,
+   "trade": false,
+   "won": false
   }
  ],
  "inspector_fixes": [
@@ -8892,9 +8892,9 @@
   "USD_JPY:M15": "2026-10-15T20:15:00"
  },
  "last_daily": "2026-10-15",
- "last_deploy": 1792108824.5491843,
- "last_full_run": 1792109415.965011,
- "last_run": 1792109415.965011,
+ "last_deploy": 1792109721.691786,
+ "last_full_run": 1792109715.932675,
+ "last_run": 1792109715.932675,
  "last_vote": {
   "approved": false,
   "ask": 0,
@@ -9059,7 +9059,6 @@
     1.5,
     1.5,
     1.5,
-    1.5,
     -1.0,
     -1.0,
     -1.0,
@@ -9070,6 +9069,7 @@
     1.5,
     1.5,
     1.5,
+    -1.0,
     -1.0
    ],
    "EUR_USD:London breakout": [
@@ -9420,13 +9420,6 @@
    }
   ],
   "outcomes": [
-   {
-    "approved": false,
-    "pair": "GBP_USD",
-    "r": -1.0,
-    "setup": "crossover",
-    "t": 1791871517.742481
-   },
    {
     "approved": false,
     "pair": "GBP_USD",
@@ -12219,12 +12212,18 @@
     "r": -1.0,
     "setup": "pullback 15m",
     "t": 1792094429.172744
+   },
+   {
+    "approved": false,
+    "pair": "AUD_USD",
+    "r": -1.0,
+    "setup": "pullback 15m",
+    "t": 1792109719.6869395
    }
   ],
   "proven": {
    "AUD_USD:crossover": 0.43,
    "AUD_USD:crossover 15m": 0.58,
-   "AUD_USD:pullback 15m": 0.35,
    "EUR_USD:crossover 15m": 1.42,
    "GBP_USD:crossover 15m": 1.32,
    "USD_CAD:crossover 15m": 0.67,
@@ -12328,7 +12327,7 @@
    },
    "rsi": 39.858577250452946,
    "setup": null,
-   "spread_pips": 1.40000000000029,
+   "spread_pips": 1.300000000000745,
    "tradeable": true,
    "trend": -1
   },
@@ -12354,7 +12353,7 @@
    },
    "rsi": 54.2602537690441,
    "setup": null,
-   "spread_pips": 1.40000000000029,
+   "spread_pips": 1.3999999999980695,
    "tradeable": true,
    "trend": 1
   },
@@ -12380,7 +12379,7 @@
    },
    "rsi": 60.7023808354189,
    "setup": null,
-   "spread_pips": 1.9999999999997797,
+   "spread_pips": 2.000000000002,
    "tradeable": true,
    "trend": 1
   },
@@ -12406,7 +12405,7 @@
    },
    "rsi": 42.832354181577266,
    "setup": null,
-   "spread_pips": 1.80000000000069,
+   "spread_pips": 1.7000000000000348,
    "tradeable": true,
    "trend": -1
   },
@@ -12458,7 +12457,7 @@
    },
    "rsi": 53.36711808419726,
    "setup": null,
-   "spread_pips": 1.4000000000010004,
+   "spread_pips": 1.8000000000000682,
    "tradeable": true,
    "trend": -1
   }
@@ -12765,7 +12764,24 @@
      "why": "stretched below its band, RSI 16"
     }
    ],
-   "open": {},
+   "open": {
+    "USD_CHF": {
+     "cost_r": 0.34871794871795175,
+     "dir": -1,
+     "entry": 0.82794,
+     "hs": 8.500000000000174e-05,
+     "last_ts": 1792109700,
+     "now_r": 0.0,
+     "risk": 0.0004875000000000057,
+     "stop": 0.8284275,
+     "t": "2026-10-16T00:00:00",
+     "tp": 0.827164875,
+     "trail": false,
+     "ts": 1792109700,
+     "until": 1792138500,
+     "why": "stretched above its band, RSI 74"
+    }
+   },
    "started": 1791853811.642428
   },
   "ny_opening_range": {
@@ -12900,8 +12916,8 @@
      "dir": -1,
      "entry": 1.42041,
      "hs": 9.00000000000345e-05,
-     "last_ts": 1792108800,
-     "now_r": 0.42,
+     "last_ts": 1792109700,
+     "now_r": 0.37,
      "risk": 0.002594285714285676,
      "stop": 1.4230042857142857,
      "t": "2026-10-15T12:45:00",
@@ -12976,12 +12992,12 @@
   }
  },
  "paper_bar": {
-  "AUD_USD": "2026-10-15T23:45:00",
-  "EUR_USD": "2026-10-15T23:45:00",
-  "GBP_USD": "2026-10-15T23:45:00",
-  "USD_CAD": "2026-10-15T23:45:00",
-  "USD_CHF": "2026-10-15T23:45:00",
-  "USD_JPY": "2026-10-15T23:45:00"
+  "AUD_USD": "2026-10-16T00:00:00",
+  "EUR_USD": "2026-10-16T00:00:00",
+  "GBP_USD": "2026-10-16T00:00:00",
+  "USD_CAD": "2026-10-16T00:00:00",
+  "USD_CHF": "2026-10-16T00:00:00",
+  "USD_JPY": "2026-10-16T00:00:00"
  },
  "parties": [
   {
@@ -13057,23 +13073,23 @@
    "no_n": 48,
    "no_r": 53.91,
    "right": 103,
-   "total": 288,
-   "yes_n": 240,
-   "yes_r": -2.7
+   "total": 289,
+   "yes_n": 241,
+   "yes_r": -3.7
   },
   "Momentum": {
-   "no_n": 50,
-   "no_r": 17.51,
-   "right": 133,
-   "total": 293,
+   "no_n": 51,
+   "no_r": 16.51,
+   "right": 134,
+   "total": 294,
    "yes_n": 243,
    "yes_r": 28.71
   },
   "Risk": {
-   "no_n": 275,
-   "no_r": 47.5,
-   "right": 154,
-   "total": 293,
+   "no_n": 276,
+   "no_r": 46.5,
+   "right": 155,
+   "total": 294,
    "yes_n": 18,
    "yes_r": -1.28
   },
@@ -13081,17 +13097,17 @@
    "no_n": 58,
    "no_r": 41.72,
    "right": 115,
-   "total": 293,
-   "yes_n": 235,
-   "yes_r": 4.5
+   "total": 294,
+   "yes_n": 236,
+   "yes_r": 3.5
   },
   "Time": {
    "no_n": 91,
    "no_r": 52.8,
    "right": 112,
-   "total": 293,
-   "yes_n": 202,
-   "yes_r": -6.58
+   "total": 294,
+   "yes_n": 203,
+   "yes_r": -7.58
   }
  },
  "scoreboard_v1": {
@@ -13784,23 +13800,6 @@
   {
    "bar": "2026-10-15T17:15:00",
    "dir": -1,
-   "entry": 0.69125,
-   "pair": "AUD_USD",
-   "setup": "pullback 15m",
-   "sl": 0.6923187202669803,
-   "tf": "M15",
-   "tp": 0.6896469195995296,
-   "votes": {
-    "Doubt": true,
-    "Momentum": false,
-    "Risk": false,
-    "The Quant": true,
-    "Time": true
-   }
-  },
-  {
-   "bar": "2026-10-15T17:15:00",
-   "dir": -1,
    "entry": 1.4193,
    "pair": "USD_CAD",
    "setup": "pullback 15m",
@@ -14152,7 +14151,7 @@
    "entry": 1.1216,
    "opened": "2026-10-15T05:00:22",
    "pair": "EUR_USD",
-   "price": 1.1211,
+   "price": 1.1209500000000001,
    "r0": 0.003248274733459011,
    "risk": 4.92,
    "setup": "crossover",
@@ -14160,7 +14159,7 @@
    "tf": "H1",
    "tp": 1.1264624121001885,
    "units": 1513,
-   "upl": -0.8624,
+   "upl": -1.0894,
    "votes": {
     "Doubt": true,
     "Momentum": true,
@@ -14175,7 +14174,7 @@
    "entry": 1.32595,
    "opened": "2026-10-15T09:00:21",
    "pair": "GBP_USD",
-   "price": 1.32701,
+   "price": 1.32682,
    "r0": 0.003318675172948371,
    "risk": 4.99,
    "setup": "crossover",
@@ -14183,7 +14182,7 @@
    "tf": "H1",
    "tp": 1.3309280127594225,
    "units": 1502,
-   "upl": 1.4419,
+   "upl": 1.1565,
    "votes": {
     "Doubt": true,
     "Momentum": true,
@@ -14198,7 +14197,7 @@
    "entry": 158.141,
    "opened": "2026-10-15T15:35:13",
    "pair": "USD_JPY",
-   "price": 158.153,
+   "price": 158.18099999999998,
    "r0": 0.3203876166760722,
    "risk": 5.01,
    "setup": "crossover 15m",
@@ -14206,7 +14205,7 @@
    "tf": "M15",
    "tp": 158.62258142501412,
    "units": 2471,
-   "upl": 0.0781,
+   "upl": 0.4842,
    "votes": {
     "Doubt": true,
     "Momentum": true,
