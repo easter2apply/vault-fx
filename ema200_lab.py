@@ -32,7 +32,7 @@ def pivots(bars, k=3):
 def strong(b, d, atr):
     body = (b["c"] - b["o"]) * d
     rng = b["h"] - b["l"]
-    return body > 0 and rng > 0 and body >= 0.6 * rng and body >= 0.35 * atr
+    return body > 0 and rng > 0 and body >= 0.6 * rng and body >= 0.25 * atr
 
 
 CNT = {}
@@ -49,7 +49,7 @@ def run(pair, bars, v):
     sh, sl_ = pivots(bars)
     trades, busy, zi, live = [], 0, 0, []
     hi_i = lo_i = 0
-    SLOPE_N = 20
+    SLOPE_N = 50
     for i in range(260, len(bars) - 4):
         while zi < len(zones) and zones[zi]["known"] <= i:
             live.append(zones[zi]); zi += 1
@@ -68,7 +68,7 @@ def run(pair, bars, v):
         d = 1 if slope > 0 else -1
         cnt("1 EMA sloped")
         # price was on the trend side, and this candle taps the EMA exactly
-        prev_side = all((bars[j]["c"] - e200[j]) * d > 0 for j in range(i - 5, i))
+        prev_side = all((bars[j]["c"] - e200[j]) * d > 0 for j in range(i - 3, i))
         tap = (b["l"] <= e) if d == 1 else (b["h"] >= e)
         if not (prev_side and tap):
             continue
@@ -115,10 +115,12 @@ def run(pair, bars, v):
 
 
 VARIANTS = {
-    "Her exact rules (zone + 200 EMA tap + 2 candles, swing TP)": {"zone": True, "slope": 1.0, "min_rr": 0.0},
-    "Same, only take trades with TP at least 1R away": {"zone": True, "slope": 1.0, "min_rr": 1.0},
-    "Same, steeper EMA required": {"zone": True, "slope": 2.0, "min_rr": 1.0},
-    "No zone needed (just 200 EMA tap + 2 candles), TP 1R+": {"zone": False, "slope": 1.0, "min_rr": 1.0},
+    "Her exact rules, gentle slope (EMA moved 0.5 ATR / 50 candles)": {"zone": True, "slope": 0.5, "min_rr": 0.0},
+    "Her exact rules, clear slope (1 ATR / 50 candles)": {"zone": True, "slope": 1.0, "min_rr": 0.0},
+    "Her exact rules, steep slope (2 ATR / 50 candles)": {"zone": True, "slope": 2.0, "min_rr": 0.0},
+    "Clear slope + only trades with TP at least 1R away": {"zone": True, "slope": 1.0, "min_rr": 1.0},
+    "No zone needed, clear slope": {"zone": False, "slope": 1.0, "min_rr": 0.0},
+    "No zone needed, clear slope, TP 1R+": {"zone": False, "slope": 1.0, "min_rr": 1.0},
 }
 
 
