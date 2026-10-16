@@ -1,366 +1,1031 @@
 {
- "split": "2026-06-18T02:45:39",
+ "split": "2026-06-18T02:50:12",
  "results": {
-  "M5 | Her exact rules (zone + 200 EMA tap + 2 candles, swing TP)": {
+  "M5 | Her exact rules, gentle slope (EMA moved 0.5 ATR / 50 candles)": {
    "all": {
-    "n": 0
+    "n": 104,
+    "win": 0.413,
+    "avg": -0.204,
+    "total": -21.2,
+    "t": -2.27,
+    "avg_rr": 0.78
    },
    "train": {
-    "n": 0
+    "n": 65,
+    "win": 0.369,
+    "avg": -0.215,
+    "total": -13.9,
+    "t": -1.82,
+    "avg_rr": 0.78
    },
    "unseen": {
-    "n": 0
+    "n": 39,
+    "win": 0.487,
+    "avg": -0.187,
+    "total": -7.3,
+    "t": -1.36,
+    "avg_rr": 0.78
    },
    "funnel": {
-    "1 EMA sloped": 157900,
-    "2 tapped EMA from trend side": 41,
-    "3 EMA inside a zone": 14
+    "1 EMA sloped": 475884,
+    "2 tapped EMA from trend side": 13602,
+    "3 EMA inside a zone": 3362,
+    "4 two strong candles": 108,
+    "5 swing target found": 104
    },
    "by_pair": {
     "USD_JPY": {
-     "n": 0
+     "n": 12,
+     "win": 0.667,
+     "avg": 0.347,
+     "total": 4.2,
+     "t": 1.34,
+     "avg_rr": 0.79
     },
     "GBP_JPY": {
-     "n": 0
+     "n": 16,
+     "win": 0.125,
+     "avg": -0.712,
+     "total": -11.4,
+     "t": -4.79,
+     "avg_rr": 0.69
     },
     "EUR_JPY": {
-     "n": 0
+     "n": 5,
+     "win": 0.6,
+     "avg": 0.225,
+     "total": 1.1,
+     "t": 0.57,
+     "avg_rr": 0.95
     },
     "AUD_JPY": {
-     "n": 0
+     "n": 11,
+     "win": 0.545,
+     "avg": 0.002,
+     "total": 0.0,
+     "t": 0.0,
+     "avg_rr": 0.85
     },
     "GBP_USD": {
-     "n": 0
+     "n": 13,
+     "win": 0.385,
+     "avg": -0.437,
+     "total": -5.7,
+     "t": -2.36,
+     "avg_rr": 0.66
     },
     "AUD_USD": {
-     "n": 0
+     "n": 16,
+     "win": 0.312,
+     "avg": -0.273,
+     "total": -4.4,
+     "t": -1.21,
+     "avg_rr": 0.85
     },
     "USD_CHF": {
-     "n": 0
+     "n": 13,
+     "win": 0.385,
+     "avg": -0.328,
+     "total": -4.3,
+     "t": -1.6,
+     "avg_rr": 0.65
     },
     "EUR_USD": {
-     "n": 0
+     "n": 18,
+     "win": 0.5,
+     "avg": -0.045,
+     "total": -0.8,
+     "t": -0.19,
+     "avg_rr": 0.89
     }
    },
-   "by_time_et": {}
+   "by_time_et": {
+    "00-04": {
+     "n": 24,
+     "avg": 0.037
+    },
+    "04-08": {
+     "n": 22,
+     "avg": -0.401
+    },
+    "08-12": {
+     "n": 17,
+     "avg": -0.254
+    },
+    "12-16": {
+     "n": 14,
+     "avg": -0.328
+    },
+    "16-20": {
+     "n": 16,
+     "avg": -0.194
+    },
+    "20-24": {
+     "n": 11,
+     "avg": -0.115
+    }
+   }
   },
-  "M5 | Same, only take trades with TP at least 1R away": {
+  "M5 | Her exact rules, clear slope (1 ATR / 50 candles)": {
    "all": {
-    "n": 0
+    "n": 64,
+    "win": 0.406,
+    "avg": -0.175,
+    "total": -11.2,
+    "t": -1.48,
+    "avg_rr": 0.86
    },
    "train": {
-    "n": 0
+    "n": 40,
+    "win": 0.325,
+    "avg": -0.229,
+    "total": -9.2,
+    "t": -1.51,
+    "avg_rr": 0.85
    },
    "unseen": {
-    "n": 0
+    "n": 24,
+    "win": 0.542,
+    "avg": -0.083,
+    "total": -2.0,
+    "t": -0.45,
+    "avg_rr": 0.88
    },
    "funnel": {
-    "1 EMA sloped": 157900,
-    "2 tapped EMA from trend side": 41,
-    "3 EMA inside a zone": 14
+    "1 EMA sloped": 371544,
+    "2 tapped EMA from trend side": 7905,
+    "3 EMA inside a zone": 1944,
+    "4 two strong candles": 66,
+    "5 swing target found": 64
    },
    "by_pair": {
     "USD_JPY": {
-     "n": 0
+     "n": 6,
+     "win": 0.833,
+     "avg": 0.647,
+     "total": 3.9,
+     "t": 1.56,
+     "avg_rr": 1.19
     },
     "GBP_JPY": {
-     "n": 0
+     "n": 12,
+     "win": 0.167,
+     "avg": -0.533,
+     "total": -6.4,
+     "t": -3.16,
+     "avg_rr": 0.74
     },
     "EUR_JPY": {
-     "n": 0
+     "n": 4,
+     "win": 0.75,
+     "avg": 0.618,
+     "total": 2.5,
+     "t": 2.73,
+     "avg_rr": 0.8
     },
     "AUD_JPY": {
-     "n": 0
+     "n": 11,
+     "win": 0.545,
+     "avg": 0.002,
+     "total": 0.0,
+     "t": 0.0,
+     "avg_rr": 0.85
     },
     "GBP_USD": {
-     "n": 0
+     "n": 6,
+     "win": 0.167,
+     "avg": -0.648,
+     "total": -3.9,
+     "t": -2.55,
+     "avg_rr": 0.95
     },
     "AUD_USD": {
-     "n": 0
+     "n": 8,
+     "win": 0.25,
+     "avg": -0.526,
+     "total": -4.2,
+     "t": -1.95,
+     "avg_rr": 1.0
     },
     "USD_CHF": {
-     "n": 0
+     "n": 6,
+     "win": 0.167,
+     "avg": -0.395,
+     "total": -2.4,
+     "t": -1.51,
+     "avg_rr": 0.37
     },
     "EUR_USD": {
-     "n": 0
+     "n": 11,
+     "win": 0.545,
+     "avg": -0.061,
+     "total": -0.7,
+     "t": -0.2,
+     "avg_rr": 0.97
     }
    },
-   "by_time_et": {}
+   "by_time_et": {
+    "00-04": {
+     "n": 16,
+     "avg": 0.029
+    },
+    "04-08": {
+     "n": 15,
+     "avg": -0.295
+    },
+    "08-12": {
+     "n": 6,
+     "avg": -0.948
+    },
+    "12-16": {
+     "n": 9,
+     "avg": -0.361
+    },
+    "16-20": {
+     "n": 11,
+     "avg": -0.105
+    },
+    "20-24": {
+     "n": 7,
+     "avg": 0.412
+    }
+   }
   },
-  "M5 | Same, steeper EMA required": {
+  "M5 | Her exact rules, steep slope (2 ATR / 50 candles)": {
    "all": {
-    "n": 0
+    "n": 12,
+    "win": 0.583,
+    "avg": -0.006,
+    "total": -0.1,
+    "t": -0.02,
+    "avg_rr": 1.25
    },
    "train": {
-    "n": 0
+    "n": 8,
+    "win": 0.5,
+    "avg": -0.209,
+    "total": -1.7,
+    "t": -0.56,
+    "avg_rr": 1.23
    },
    "unseen": {
-    "n": 0
+    "n": 4,
+    "win": 0.75,
+    "avg": 0.399,
+    "total": 1.6,
+    "t": 0.73,
+    "avg_rr": 1.27
    },
    "funnel": {
-    "1 EMA sloped": 27234
+    "1 EMA sloped": 206053,
+    "2 tapped EMA from trend side": 1548,
+    "3 EMA inside a zone": 374,
+    "4 two strong candles": 13,
+    "5 swing target found": 12
    },
    "by_pair": {
     "USD_JPY": {
-     "n": 0
+     "n": 1,
+     "win": 1.0,
+     "avg": 1.406,
+     "total": 1.4,
+     "t": 0,
+     "avg_rr": 1.64
     },
     "GBP_JPY": {
-     "n": 0
+     "n": 1,
+     "win": 1.0,
+     "avg": 0.162,
+     "total": 0.2,
+     "t": 0,
+     "avg_rr": 0.26
     },
     "EUR_JPY": {
      "n": 0
     },
     "AUD_JPY": {
-     "n": 0
+     "n": 3,
+     "win": 1.0,
+     "avg": 1.056,
+     "total": 3.2,
+     "t": 3.49,
+     "avg_rr": 1.3
     },
     "GBP_USD": {
-     "n": 0
-    },
-    "AUD_USD": {
-     "n": 0
-    },
-    "USD_CHF": {
-     "n": 0
-    },
-    "EUR_USD": {
-     "n": 0
-    }
-   },
-   "by_time_et": {}
-  },
-  "M5 | No zone needed (just 200 EMA tap + 2 candles), TP 1R+": {
-   "all": {
-    "n": 2,
-    "win": 0.0,
-    "avg": -1.218,
-    "total": -2.4,
-    "t": -29.46,
-    "avg_rr": 2.3
-   },
-   "train": {
-    "n": 1,
-    "win": 0.0,
-    "avg": -1.277,
-    "total": -1.3,
-    "t": 0,
-    "avg_rr": 3.28
-   },
-   "unseen": {
-    "n": 1,
-    "win": 0.0,
-    "avg": -1.16,
-    "total": -1.2,
-    "t": 0,
-    "avg_rr": 1.33
-   },
-   "funnel": {
-    "1 EMA sloped": 157900,
-    "2 tapped EMA from trend side": 41,
-    "3 EMA inside a zone": 41,
-    "4 two strong candles": 3,
-    "5 swing target found": 3
-   },
-   "by_pair": {
-    "USD_JPY": {
-     "n": 0
-    },
-    "GBP_JPY": {
-     "n": 0
-    },
-    "EUR_JPY": {
-     "n": 0
-    },
-    "AUD_JPY": {
-     "n": 0
-    },
-    "GBP_USD": {
-     "n": 0
-    },
-    "AUD_USD": {
      "n": 1,
      "win": 0.0,
-     "avg": -1.277,
+     "avg": -1.258,
      "total": -1.3,
      "t": 0,
-     "avg_rr": 3.28
+     "avg_rr": 1.67
+    },
+    "AUD_USD": {
+     "n": 2,
+     "win": 0.0,
+     "avg": -1.199,
+     "total": -2.4,
+     "t": -78.83,
+     "avg_rr": 1.56
     },
     "USD_CHF": {
      "n": 0
     },
     "EUR_USD": {
-     "n": 1,
-     "win": 0.0,
-     "avg": -1.16,
+     "n": 4,
+     "win": 0.5,
+     "avg": -0.289,
      "total": -1.2,
-     "t": 0,
+     "t": -0.61,
+     "avg_rr": 1.09
+    }
+   },
+   "by_time_et": {
+    "00-04": {
+     "n": 3,
+     "avg": -0.238
+    },
+    "04-08": {
+     "n": 2,
+     "avg": 0.114
+    },
+    "08-12": {
+     "n": 2,
+     "avg": -0.525
+    },
+    "12-16": {
+     "n": 2,
+     "avg": -0.18
+    },
+    "16-20": {
+     "n": 1,
+     "avg": 0.48
+    },
+    "20-24": {
+     "n": 2,
+     "avg": 0.67
+    }
+   }
+  },
+  "M5 | Clear slope + only trades with TP at least 1R away": {
+   "all": {
+    "n": 24,
+    "win": 0.542,
+    "avg": 0.09,
+    "total": 2.1,
+    "t": 0.36,
+    "avg_rr": 1.61
+   },
+   "train": {
+    "n": 14,
+    "win": 0.571,
+    "avg": 0.195,
+    "total": 2.7,
+    "t": 0.59,
+    "avg_rr": 1.76
+   },
+   "unseen": {
+    "n": 10,
+    "win": 0.5,
+    "avg": -0.058,
+    "total": -0.6,
+    "t": -0.15,
+    "avg_rr": 1.4
+   },
+   "funnel": {
+    "1 EMA sloped": 371969,
+    "2 tapped EMA from trend side": 7925,
+    "3 EMA inside a zone": 1959,
+    "4 two strong candles": 68,
+    "5 swing target found": 66
+   },
+   "by_pair": {
+    "USD_JPY": {
+     "n": 3,
+     "win": 0.667,
+     "avg": 0.818,
+     "total": 2.5,
+     "t": 1.0,
+     "avg_rr": 1.7
+    },
+    "GBP_JPY": {
+     "n": 2,
+     "win": 0.0,
+     "avg": -1.159,
+     "total": -2.3,
+     "t": -468.51,
+     "avg_rr": 2.94
+    },
+    "EUR_JPY": {
+     "n": 2,
+     "win": 1.0,
+     "avg": 1.006,
+     "total": 2.0,
+     "t": 23.9,
+     "avg_rr": 1.17
+    },
+    "AUD_JPY": {
+     "n": 5,
+     "win": 0.8,
+     "avg": 0.719,
+     "total": 3.6,
+     "t": 1.58,
+     "avg_rr": 1.39
+    },
+    "GBP_USD": {
+     "n": 3,
+     "win": 0.0,
+     "avg": -1.252,
+     "total": -3.8,
+     "t": -36.79,
+     "avg_rr": 1.65
+    },
+    "AUD_USD": {
+     "n": 3,
+     "win": 0.333,
+     "avg": -0.501,
+     "total": -1.5,
+     "t": -0.86,
+     "avg_rr": 1.83
+    },
+    "USD_CHF": {
+     "n": 0
+    },
+    "EUR_USD": {
+     "n": 6,
+     "win": 0.667,
+     "avg": 0.278,
+     "total": 1.7,
+     "t": 0.63,
      "avg_rr": 1.33
     }
    },
    "by_time_et": {
     "00-04": {
-     "n": 1,
-     "avg": -1.16
+     "n": 5,
+     "avg": 0.7
     },
     "04-08": {
+     "n": 5,
+     "avg": 0.175
+    },
+    "08-12": {
+     "n": 3,
+     "avg": -1.19
+    },
+    "12-16": {
+     "n": 8,
+     "avg": -0.38
+    },
+    "16-20": {
      "n": 1,
-     "avg": -1.277
+     "avg": 1.256
+    },
+    "20-24": {
+     "n": 2,
+     "avg": 1.561
     }
    }
   },
-  "M15 | Her exact rules (zone + 200 EMA tap + 2 candles, swing TP)": {
+  "M5 | No zone needed, clear slope": {
    "all": {
-    "n": 0
+    "n": 263,
+    "win": 0.43,
+    "avg": -0.224,
+    "total": -58.8,
+    "t": -3.74,
+    "avg_rr": 0.88
    },
    "train": {
-    "n": 0
+    "n": 161,
+    "win": 0.404,
+    "avg": -0.215,
+    "total": -34.6,
+    "t": -2.76,
+    "avg_rr": 0.86
    },
    "unseen": {
-    "n": 0
+    "n": 102,
+    "win": 0.471,
+    "avg": -0.237,
+    "total": -24.2,
+    "t": -2.54,
+    "avg_rr": 0.91
    },
    "funnel": {
-    "1 EMA sloped": 54527,
-    "2 tapped EMA from trend side": 5,
-    "3 EMA inside a zone": 2
+    "1 EMA sloped": 368594,
+    "2 tapped EMA from trend side": 7722,
+    "3 EMA inside a zone": 7722,
+    "4 two strong candles": 266,
+    "5 swing target found": 263
    },
    "by_pair": {
     "USD_JPY": {
-     "n": 0
+     "n": 34,
+     "win": 0.529,
+     "avg": -0.09,
+     "total": -3.0,
+     "t": -0.49,
+     "avg_rr": 1.11
     },
     "GBP_JPY": {
-     "n": 0
+     "n": 26,
+     "win": 0.231,
+     "avg": -0.576,
+     "total": -15.0,
+     "t": -4.44,
+     "avg_rr": 0.66
     },
     "EUR_JPY": {
-     "n": 0
+     "n": 25,
+     "win": 0.56,
+     "avg": 0.009,
+     "total": 0.2,
+     "t": 0.06,
+     "avg_rr": 0.74
     },
     "AUD_JPY": {
-     "n": 0
+     "n": 36,
+     "win": 0.583,
+     "avg": 0.009,
+     "total": 0.3,
+     "t": 0.05,
+     "avg_rr": 0.8
     },
     "GBP_USD": {
-     "n": 0
+     "n": 23,
+     "win": 0.304,
+     "avg": -0.401,
+     "total": -9.2,
+     "t": -1.85,
+     "avg_rr": 0.94
     },
     "AUD_USD": {
-     "n": 0
+     "n": 45,
+     "win": 0.444,
+     "avg": -0.184,
+     "total": -8.3,
+     "t": -1.4,
+     "avg_rr": 0.87
     },
     "USD_CHF": {
-     "n": 0
+     "n": 31,
+     "win": 0.355,
+     "avg": -0.328,
+     "total": -10.2,
+     "t": -2.01,
+     "avg_rr": 0.72
     },
     "EUR_USD": {
-     "n": 0
+     "n": 43,
+     "win": 0.372,
+     "avg": -0.317,
+     "total": -13.6,
+     "t": -1.92,
+     "avg_rr": 1.07
     }
    },
-   "by_time_et": {}
+   "by_time_et": {
+    "00-04": {
+     "n": 56,
+     "avg": -0.285
+    },
+    "04-08": {
+     "n": 50,
+     "avg": -0.29
+    },
+    "08-12": {
+     "n": 40,
+     "avg": -0.322
+    },
+    "12-16": {
+     "n": 32,
+     "avg": -0.102
+    },
+    "16-20": {
+     "n": 37,
+     "avg": -0.183
+    },
+    "20-24": {
+     "n": 48,
+     "avg": -0.113
+    }
+   }
   },
-  "M15 | Same, only take trades with TP at least 1R away": {
+  "M5 | No zone needed, clear slope, TP 1R+": {
    "all": {
-    "n": 0
+    "n": 91,
+    "win": 0.429,
+    "avg": -0.106,
+    "total": -9.7,
+    "t": -0.75,
+    "avg_rr": 1.72
    },
    "train": {
-    "n": 0
+    "n": 55,
+    "win": 0.436,
+    "avg": -0.05,
+    "total": -2.7,
+    "t": -0.26,
+    "avg_rr": 1.74
    },
    "unseen": {
-    "n": 0
+    "n": 36,
+    "win": 0.417,
+    "avg": -0.192,
+    "total": -6.9,
+    "t": -0.91,
+    "avg_rr": 1.69
    },
    "funnel": {
-    "1 EMA sloped": 54527,
-    "2 tapped EMA from trend side": 5,
-    "3 EMA inside a zone": 2
+    "1 EMA sloped": 370215,
+    "2 tapped EMA from trend side": 7820,
+    "3 EMA inside a zone": 7820,
+    "4 two strong candles": 282,
+    "5 swing target found": 279
    },
    "by_pair": {
     "USD_JPY": {
-     "n": 0
+     "n": 14,
+     "win": 0.429,
+     "avg": -0.01,
+     "total": -0.1,
+     "t": -0.03,
+     "avg_rr": 1.82
     },
     "GBP_JPY": {
-     "n": 0
+     "n": 5,
+     "win": 0.2,
+     "avg": -0.768,
+     "total": -3.8,
+     "t": -2.09,
+     "avg_rr": 1.92
     },
     "EUR_JPY": {
-     "n": 0
+     "n": 8,
+     "win": 0.5,
+     "avg": -0.103,
+     "total": -0.8,
+     "t": -0.25,
+     "avg_rr": 1.56
     },
     "AUD_JPY": {
-     "n": 0
+     "n": 10,
+     "win": 0.9,
+     "avg": 1.163,
+     "total": 11.6,
+     "t": 4.28,
+     "avg_rr": 1.61
     },
     "GBP_USD": {
-     "n": 0
+     "n": 9,
+     "win": 0.333,
+     "avg": -0.237,
+     "total": -2.1,
+     "t": -0.49,
+     "avg_rr": 1.82
     },
     "AUD_USD": {
-     "n": 0
+     "n": 13,
+     "win": 0.308,
+     "avg": -0.378,
+     "total": -4.9,
+     "t": -1.02,
+     "avg_rr": 1.96
     },
     "USD_CHF": {
-     "n": 0
+     "n": 8,
+     "win": 0.375,
+     "avg": -0.342,
+     "total": -2.7,
+     "t": -0.76,
+     "avg_rr": 1.54
     },
     "EUR_USD": {
-     "n": 0
+     "n": 24,
+     "win": 0.375,
+     "avg": -0.279,
+     "total": -6.7,
+     "t": -1.04,
+     "avg_rr": 1.6
     }
    },
-   "by_time_et": {}
+   "by_time_et": {
+    "00-04": {
+     "n": 20,
+     "avg": -0.225
+    },
+    "04-08": {
+     "n": 19,
+     "avg": -0.163
+    },
+    "08-12": {
+     "n": 13,
+     "avg": -0.343
+    },
+    "12-16": {
+     "n": 18,
+     "avg": -0.049
+    },
+    "16-20": {
+     "n": 6,
+     "avg": 0.031
+    },
+    "20-24": {
+     "n": 15,
+     "avg": 0.206
+    }
+   }
   },
-  "M15 | Same, steeper EMA required": {
+  "M15 | Her exact rules, gentle slope (EMA moved 0.5 ATR / 50 candles)": {
    "all": {
-    "n": 0
+    "n": 22,
+    "win": 0.545,
+    "avg": 0.108,
+    "total": 2.4,
+    "t": 0.45,
+    "avg_rr": 1.11
    },
    "train": {
-    "n": 0
+    "n": 15,
+    "win": 0.467,
+    "avg": -0.092,
+    "total": -1.4,
+    "t": -0.32,
+    "avg_rr": 1.16
    },
    "unseen": {
-    "n": 0
+    "n": 7,
+    "win": 0.714,
+    "avg": 0.535,
+    "total": 3.7,
+    "t": 1.45,
+    "avg_rr": 1.0
    },
    "funnel": {
-    "1 EMA sloped": 7908
+    "1 EMA sloped": 159390,
+    "2 tapped EMA from trend side": 4448,
+    "3 EMA inside a zone": 941,
+    "4 two strong candles": 23,
+    "5 swing target found": 22
    },
    "by_pair": {
     "USD_JPY": {
-     "n": 0
+     "n": 2,
+     "win": 0.0,
+     "avg": -1.1,
+     "total": -2.2,
+     "t": -119.66,
+     "avg_rr": 1.65
     },
     "GBP_JPY": {
-     "n": 0
+     "n": 2,
+     "win": 1.0,
+     "avg": 1.519,
+     "total": 3.0,
+     "t": 2.25,
+     "avg_rr": 1.66
     },
     "EUR_JPY": {
-     "n": 0
+     "n": 2,
+     "win": 0.5,
+     "avg": 0.225,
+     "total": 0.4,
+     "t": 0.24,
+     "avg_rr": 1.0
     },
     "AUD_JPY": {
-     "n": 0
+     "n": 3,
+     "win": 0.333,
+     "avg": 0.55,
+     "total": 1.7,
+     "t": 1.11,
+     "avg_rr": 0.67
     },
     "GBP_USD": {
-     "n": 0
+     "n": 3,
+     "win": 1.0,
+     "avg": 0.988,
+     "total": 3.0,
+     "t": 2.57,
+     "avg_rr": 1.1
     },
     "AUD_USD": {
      "n": 0
     },
     "USD_CHF": {
-     "n": 0
+     "n": 5,
+     "win": 0.8,
+     "avg": 0.171,
+     "total": 0.9,
+     "t": 0.55,
+     "avg_rr": 0.84
     },
     "EUR_USD": {
-     "n": 0
+     "n": 5,
+     "win": 0.2,
+     "avg": -0.878,
+     "total": -4.4,
+     "t": -3.62,
+     "avg_rr": 1.26
     }
    },
-   "by_time_et": {}
+   "by_time_et": {
+    "00-04": {
+     "n": 2,
+     "avg": -0.594
+    },
+    "04-08": {
+     "n": 4,
+     "avg": 0.21
+    },
+    "08-12": {
+     "n": 8,
+     "avg": -0.012
+    },
+    "12-16": {
+     "n": 3,
+     "avg": -0.163
+    },
+    "16-20": {
+     "n": 1,
+     "avg": 0.961
+    },
+    "20-24": {
+     "n": 4,
+     "avg": 0.585
+    }
+   }
   },
-  "M15 | No zone needed (just 200 EMA tap + 2 candles), TP 1R+": {
+  "M15 | Her exact rules, clear slope (1 ATR / 50 candles)": {
    "all": {
-    "n": 0
+    "n": 12,
+    "win": 0.583,
+    "avg": 0.443,
+    "total": 5.3,
+    "t": 1.28,
+    "avg_rr": 1.23
    },
    "train": {
-    "n": 0
+    "n": 8,
+    "win": 0.5,
+    "avg": 0.174,
+    "total": 1.4,
+    "t": 0.4,
+    "avg_rr": 1.3
    },
    "unseen": {
-    "n": 0
+    "n": 4,
+    "win": 0.75,
+    "avg": 0.98,
+    "total": 3.9,
+    "t": 2.24,
+    "avg_rr": 1.09
    },
    "funnel": {
-    "1 EMA sloped": 54527,
-    "2 tapped EMA from trend side": 5,
-    "3 EMA inside a zone": 5
+    "1 EMA sloped": 125195,
+    "2 tapped EMA from trend side": 2686,
+    "3 EMA inside a zone": 596,
+    "4 two strong candles": 13,
+    "5 swing target found": 12
+   },
+   "by_pair": {
+    "USD_JPY": {
+     "n": 2,
+     "win": 0.0,
+     "avg": -1.1,
+     "total": -2.2,
+     "t": -119.66,
+     "avg_rr": 1.65
+    },
+    "GBP_JPY": {
+     "n": 1,
+     "win": 1.0,
+     "avg": 2.475,
+     "total": 2.5,
+     "t": 0,
+     "avg_rr": 2.64
+    },
+    "EUR_JPY": {
+     "n": 1,
+     "win": 1.0,
+     "avg": 1.573,
+     "total": 1.6,
+     "t": 0,
+     "avg_rr": 1.73
+    },
+    "AUD_JPY": {
+     "n": 3,
+     "win": 0.333,
+     "avg": 0.55,
+     "total": 1.7,
+     "t": 1.11,
+     "avg_rr": 0.67
+    },
+    "GBP_USD": {
+     "n": 1,
+     "win": 1.0,
+     "avg": 1.918,
+     "total": 1.9,
+     "t": 0,
+     "avg_rr": 2.04
+    },
+    "AUD_USD": {
+     "n": 0
+    },
+    "USD_CHF": {
+     "n": 4,
+     "win": 0.75,
+     "avg": -0.026,
+     "total": -0.1,
+     "t": -0.08,
+     "avg_rr": 0.77
+    },
+    "EUR_USD": {
+     "n": 0
+    }
+   },
+   "by_time_et": {
+    "00-04": {
+     "n": 1,
+     "avg": 0.017
+    },
+    "04-08": {
+     "n": 3,
+     "avg": 0.092
+    },
+    "08-12": {
+     "n": 5,
+     "avg": 0.353
+    },
+    "12-16": {
+     "n": 1,
+     "avg": 1.764
+    },
+    "20-24": {
+     "n": 2,
+     "avg": 0.746
+    }
+   }
+  },
+  "M15 | Her exact rules, steep slope (2 ATR / 50 candles)": {
+   "all": {
+    "n": 5,
+    "win": 0.8,
+    "avg": 1.272,
+    "total": 6.4,
+    "t": 3.17,
+    "avg_rr": 1.41
+   },
+   "train": {
+    "n": 3,
+    "win": 1.0,
+    "avg": 1.559,
+    "total": 4.7,
+    "t": 3.58,
+    "avg_rr": 1.7
+   },
+   "unseen": {
+    "n": 2,
+    "win": 0.5,
+    "avg": 0.842,
+    "total": 1.7,
+    "t": 1.29,
+    "avg_rr": 0.97
+   },
+   "funnel": {
+    "1 EMA sloped": 71369,
+    "2 tapped EMA from trend side": 450,
+    "3 EMA inside a zone": 104,
+    "4 two strong candles": 5,
+    "5 swing target found": 5
    },
    "by_pair": {
     "USD_JPY": {
      "n": 0
     },
     "GBP_JPY": {
-     "n": 0
+     "n": 1,
+     "win": 1.0,
+     "avg": 2.475,
+     "total": 2.5,
+     "t": 0,
+     "avg_rr": 2.64
     },
     "EUR_JPY": {
-     "n": 0
+     "n": 1,
+     "win": 1.0,
+     "avg": 1.573,
+     "total": 1.6,
+     "t": 0,
+     "avg_rr": 1.73
     },
     "AUD_JPY": {
-     "n": 0
+     "n": 2,
+     "win": 0.5,
+     "avg": 0.842,
+     "total": 1.7,
+     "t": 1.29,
+     "avg_rr": 0.97
     },
     "GBP_USD": {
      "n": 0
@@ -369,13 +1034,392 @@
      "n": 0
     },
     "USD_CHF": {
-     "n": 0
+     "n": 1,
+     "win": 1.0,
+     "avg": 0.628,
+     "total": 0.6,
+     "t": 0,
+     "avg_rr": 0.74
     },
     "EUR_USD": {
      "n": 0
     }
    },
-   "by_time_et": {}
+   "by_time_et": {
+    "04-08": {
+     "n": 1,
+     "avg": 2.475
+    },
+    "08-12": {
+     "n": 1,
+     "avg": 0.628
+    },
+    "12-16": {
+     "n": 1,
+     "avg": 1.764
+    },
+    "20-24": {
+     "n": 2,
+     "avg": 0.746
+    }
+   }
+  },
+  "M15 | Clear slope + only trades with TP at least 1R away": {
+   "all": {
+    "n": 7,
+    "win": 0.571,
+    "avg": 0.637,
+    "total": 4.5,
+    "t": 1.11,
+    "avg_rr": 1.92
+   },
+   "train": {
+    "n": 5,
+    "win": 0.4,
+    "avg": 0.156,
+    "total": 0.8,
+    "t": 0.22,
+    "avg_rr": 1.9
+   },
+   "unseen": {
+    "n": 2,
+    "win": 1.0,
+    "avg": 1.841,
+    "total": 3.7,
+    "t": 33.81,
+    "avg_rr": 1.98
+   },
+   "funnel": {
+    "1 EMA sloped": 125216,
+    "2 tapped EMA from trend side": 2688,
+    "3 EMA inside a zone": 598,
+    "4 two strong candles": 15,
+    "5 swing target found": 14
+   },
+   "by_pair": {
+    "USD_JPY": {
+     "n": 2,
+     "win": 0.0,
+     "avg": -1.1,
+     "total": -2.2,
+     "t": -119.66,
+     "avg_rr": 1.65
+    },
+    "GBP_JPY": {
+     "n": 1,
+     "win": 1.0,
+     "avg": 2.475,
+     "total": 2.5,
+     "t": 0,
+     "avg_rr": 2.64
+    },
+    "EUR_JPY": {
+     "n": 1,
+     "win": 1.0,
+     "avg": 1.573,
+     "total": 1.6,
+     "t": 0,
+     "avg_rr": 1.73
+    },
+    "AUD_JPY": {
+     "n": 1,
+     "win": 1.0,
+     "avg": 1.764,
+     "total": 1.8,
+     "t": 0,
+     "avg_rr": 1.92
+    },
+    "GBP_USD": {
+     "n": 1,
+     "win": 1.0,
+     "avg": 1.918,
+     "total": 1.9,
+     "t": 0,
+     "avg_rr": 2.04
+    },
+    "AUD_USD": {
+     "n": 0
+    },
+    "USD_CHF": {
+     "n": 1,
+     "win": 0.0,
+     "avg": -1.069,
+     "total": -1.1,
+     "t": 0,
+     "avg_rr": 1.82
+    },
+    "EUR_USD": {
+     "n": 0
+    }
+   },
+   "by_time_et": {
+    "04-08": {
+     "n": 3,
+     "avg": 0.092
+    },
+    "08-12": {
+     "n": 2,
+     "avg": 0.424
+    },
+    "12-16": {
+     "n": 1,
+     "avg": 1.764
+    },
+    "20-24": {
+     "n": 1,
+     "avg": 1.573
+    }
+   }
+  },
+  "M15 | No zone needed, clear slope": {
+   "all": {
+    "n": 70,
+    "win": 0.457,
+    "avg": -0.142,
+    "total": -9.9,
+    "t": -1.26,
+    "avg_rr": 0.8
+   },
+   "train": {
+    "n": 43,
+    "win": 0.442,
+    "avg": -0.198,
+    "total": -8.5,
+    "t": -1.34,
+    "avg_rr": 0.89
+   },
+   "unseen": {
+    "n": 27,
+    "win": 0.481,
+    "avg": -0.051,
+    "total": -1.4,
+    "t": -0.3,
+    "avg_rr": 0.65
+   },
+   "funnel": {
+    "1 EMA sloped": 124552,
+    "2 tapped EMA from trend side": 2643,
+    "3 EMA inside a zone": 2643,
+    "4 two strong candles": 72,
+    "5 swing target found": 70
+   },
+   "by_pair": {
+    "USD_JPY": {
+     "n": 15,
+     "win": 0.267,
+     "avg": -0.428,
+     "total": -6.4,
+     "t": -1.79,
+     "avg_rr": 0.94
+    },
+    "GBP_JPY": {
+     "n": 9,
+     "win": 0.444,
+     "avg": -0.093,
+     "total": -0.8,
+     "t": -0.24,
+     "avg_rr": 0.78
+    },
+    "EUR_JPY": {
+     "n": 3,
+     "win": 0.667,
+     "avg": 0.242,
+     "total": 0.7,
+     "t": 0.37,
+     "avg_rr": 1.41
+    },
+    "AUD_JPY": {
+     "n": 10,
+     "win": 0.6,
+     "avg": 0.33,
+     "total": 3.3,
+     "t": 1.08,
+     "avg_rr": 0.78
+    },
+    "GBP_USD": {
+     "n": 9,
+     "win": 0.556,
+     "avg": -0.085,
+     "total": -0.8,
+     "t": -0.27,
+     "avg_rr": 0.74
+    },
+    "AUD_USD": {
+     "n": 8,
+     "win": 0.5,
+     "avg": -0.085,
+     "total": -0.7,
+     "t": -0.35,
+     "avg_rr": 0.62
+    },
+    "USD_CHF": {
+     "n": 9,
+     "win": 0.556,
+     "avg": -0.253,
+     "total": -2.3,
+     "t": -1.19,
+     "avg_rr": 0.51
+    },
+    "EUR_USD": {
+     "n": 7,
+     "win": 0.286,
+     "avg": -0.423,
+     "total": -3.0,
+     "t": -1.61,
+     "avg_rr": 0.94
+    }
+   },
+   "by_time_et": {
+    "00-04": {
+     "n": 8,
+     "avg": -0.407
+    },
+    "04-08": {
+     "n": 13,
+     "avg": -0.019
+    },
+    "08-12": {
+     "n": 17,
+     "avg": 0.015
+    },
+    "12-16": {
+     "n": 14,
+     "avg": -0.504
+    },
+    "16-20": {
+     "n": 4,
+     "avg": -0.416
+    },
+    "20-24": {
+     "n": 14,
+     "avg": 0.147
+    }
+   }
+  },
+  "M15 | No zone needed, clear slope, TP 1R+": {
+   "all": {
+    "n": 22,
+    "win": 0.455,
+    "avg": 0.092,
+    "total": 2.0,
+    "t": 0.31,
+    "avg_rr": 1.76
+   },
+   "train": {
+    "n": 15,
+    "win": 0.4,
+    "avg": 0.001,
+    "total": 0.0,
+    "t": 0.0,
+    "avg_rr": 1.87
+   },
+   "unseen": {
+    "n": 7,
+    "win": 0.571,
+    "avg": 0.289,
+    "total": 2.0,
+    "t": 0.56,
+    "avg_rr": 1.54
+   },
+   "funnel": {
+    "1 EMA sloped": 124926,
+    "2 tapped EMA from trend side": 2676,
+    "3 EMA inside a zone": 2676,
+    "4 two strong candles": 77,
+    "5 swing target found": 75
+   },
+   "by_pair": {
+    "USD_JPY": {
+     "n": 6,
+     "win": 0.333,
+     "avg": -0.24,
+     "total": -1.4,
+     "t": -0.49,
+     "avg_rr": 1.64
+    },
+    "GBP_JPY": {
+     "n": 3,
+     "win": 1.0,
+     "avg": 1.412,
+     "total": 4.2,
+     "t": 3.25,
+     "avg_rr": 1.57
+    },
+    "EUR_JPY": {
+     "n": 2,
+     "win": 0.5,
+     "avg": 0.197,
+     "total": 0.4,
+     "t": 0.2,
+     "avg_rr": 1.9
+    },
+    "AUD_JPY": {
+     "n": 3,
+     "win": 0.667,
+     "avg": 0.927,
+     "total": 2.8,
+     "t": 1.0,
+     "avg_rr": 2.11
+    },
+    "GBP_USD": {
+     "n": 3,
+     "win": 0.333,
+     "avg": -0.153,
+     "total": -0.5,
+     "t": -0.18,
+     "avg_rr": 1.53
+    },
+    "AUD_USD": {
+     "n": 2,
+     "win": 0.5,
+     "avg": 0.008,
+     "total": 0.0,
+     "t": 0.01,
+     "avg_rr": 1.65
+    },
+    "USD_CHF": {
+     "n": 1,
+     "win": 0.0,
+     "avg": -1.069,
+     "total": -1.1,
+     "t": 0,
+     "avg_rr": 1.82
+    },
+    "EUR_USD": {
+     "n": 2,
+     "win": 0.0,
+     "avg": -1.212,
+     "total": -2.4,
+     "t": -244.86,
+     "avg_rr": 2.23
+    }
+   },
+   "by_time_et": {
+    "00-04": {
+     "n": 2,
+     "avg": -1.167
+    },
+    "04-08": {
+     "n": 5,
+     "avg": 0.278
+    },
+    "08-12": {
+     "n": 3,
+     "avg": 0.72
+    },
+    "12-16": {
+     "n": 5,
+     "avg": -0.56
+    },
+    "16-20": {
+     "n": 1,
+     "avg": 0.897
+    },
+    "20-24": {
+     "n": 6,
+     "avg": 0.454
+    }
+   }
   }
  }
 }
