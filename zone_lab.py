@@ -15,11 +15,11 @@ MAX_HOLD = 4 * 24 * 5          # 15-min bars (5 days)
 api = vf.Oanda(os.environ["OANDA_API_TOKEN"].strip(), os.environ["OANDA_ACCOUNT_ID"].strip())
 
 
-def fetch(pair):
+def fetch(pair, gran="M15"):
     start = datetime.now(timezone.utc) - timedelta(days=30 * MONTHS)
     out, frm = [], start.strftime("%Y-%m-%dT%H:%M:%SZ")
     while True:
-        rows = api.get(f"/instruments/{pair}/candles", granularity="M15", count=5000, price="MBA",
+        rows = api.get(f"/instruments/{pair}/candles", granularity=gran, count=5000, price="MBA",
                        **{"from": frm})["candles"]
         rows = [c for c in rows if c.get("complete")]
         if not rows:
