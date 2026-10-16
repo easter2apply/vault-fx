@@ -64,7 +64,7 @@ def atr_list(bars, n=14):
     return out
 
 
-def find_zones(bars, atr, known_at):
+def find_zones(bars, atr, known_at, imp=2.0, cls=1.5, base_max=0.8):
     """Classic base-then-explosive-move zones.
     Base = 1-3 small candles (range < 0.8 ATR). Impulse = the next 1-2 candles move > 2 ATR away from the base.
     Demand = base low..base high when the move is up; supply when down. known_at(j) = 15-min index when it's confirmed."""
@@ -75,19 +75,19 @@ def find_zones(bars, atr, known_at):
             continue
         for blen in (1, 2, 3):
             base = bars[i - blen:i]
-            if len(base) < blen or any(b["h"] - b["l"] > 0.8 * a for b in base):
+            if len(base) < blen or any(b["h"] - b["l"] > base_max * a for b in base):
                 continue
             hi, lo = max(b["h"] for b in base), min(b["l"] for b in base)
             for k in (1, 2):
-                imp = bars[i:i + k]
-                if len(imp) < k:
+                mv = bars[i:i + k]
+                if len(mv) < k:
                     continue
-                up = max(b["h"] for b in imp) - hi
-                dn = lo - min(b["l"] for b in imp)
-                if up > 2 * a and imp[-1]["c"] > hi + 1.5 * a:
+                up = max(b["h"] for b in mv) - hi
+                dn = lo - min(b["l"] for b in mv)
+                if up > imp * a and mv[-1]["c"] > hi + cls * a:
                     zones.append({"kind": "demand", "hi": hi, "lo": lo, "known": known_at(i + k - 1), "used": 0, "dead": False})
                     break
-                if dn > 2 * a and imp[-1]["c"] < lo - 1.5 * a:
+                if dn > imp * a and mv[-1]["c"] < lo - cls * a:
                     zones.append({"kind": "supply", "hi": hi, "lo": lo, "known": known_at(i + k - 1), "used": 0, "dead": False})
                     break
             else:
@@ -134,8 +134,9 @@ def run(pair, m15, variant):
         while j + 1 < len(h4) and h4[j + 1]["end"] < i:
             j += 1
         h4_at.append(j)
-    z15 = find_zones(m15, a15, lambda k: k + 1)
-    z4 = find_zones(h4, a4, lambda k: h4[k]["end"] + 1)
+    zk = variant.get("zk", {})
+    z15 = find_zones(m15, a15, lambda k: k + 1, **zk)
+    z4 = find_zones(h4, a4, lambda k: h4[k]["end"] + 1, **zk)
     for z in z15: z["tf"] = "15m"
     for z in z4: z["tf"] = "4h"
     allz = sorted(z15 + z4, key=lambda z: z["known"])
@@ -183,10 +184,10 @@ def run(pair, m15, variant):
             # rejection: candle wicks into the zone and closes back out, in the trend direction
             if want == "demand":
                 tapped = b["l"] <= z["hi"] and b["l"] >= z["lo"] - 0.25 * a
-                rej = tapped and b["c"] > z["hi"] and b["c"] > b["o"] and (b["c"] - b["l"]) >= 0.6 * (b["h"] - b["l"])
+                rej = tapped and b["c"] > (z["hi"] if variant.get("strict", True) else z["lo"]) and b["c"] > b["o"] and (b["c"] - b["l"]) >= 0.6 * (b["h"] - b["l"])
             else:
                 tapped = b["h"] >= z["lo"] and b["h"] <= z["hi"] + 0.25 * a
-                rej = tapped and b["c"] < z["lo"] and b["c"] < b["o"] and (b["h"] - b["c"]) >= 0.6 * (b["h"] - b["l"])
+                rej = tapped and b["c"] < (z["lo"] if variant.get("strict", True) else z["hi"]) and b["c"] < b["o"] and (b["h"] - b["c"]) >= 0.6 * (b["h"] - b["l"])
             if tapped:
                 z["used"] += 1
             if not rej:
@@ -204,6 +205,8 @@ def run(pair, m15, variant):
                 if not cands:
                     break
                 tp = min(cands) if d == 1 else max(cands)
+                if variant.get("cap"):
+                    tp = entry + d * min(abs(tp - entry), variant["cap"] * risk)
                 if abs(tp - entry) < variant["min_rr"] * risk:
                     break
             else:
@@ -265,6 +268,11 @@ VARIANTS = {
     "D. Same as C but fixed 2R target": {"zones": "both", "trend": "both", "target": "fixed", "rr": 2.0, "touches": 1},
     "E. 15m zones, both EMAs agree, next zone": {"zones": "15m", "trend": "both", "target": "zone", "min_rr": 1.5, "touches": 1},
     "F. 15m zones, both EMAs agree, fixed 2R": {"zones": "15m", "trend": "both", "target": "fixed", "rr": 2.0, "touches": 1},
+    "G. LOOSE zones, her full plan, next zone (max 3R)": {"zones": "both", "trend": "both", "target": "zone", "min_rr": 1.5, "cap": 3, "touches": 2, "strict": False, "zk": {"imp": 1.2, "cls": 0.8, "base_max": 1.0}},
+    "H. LOOSE zones, her full plan, fixed 2R": {"zones": "both", "trend": "both", "target": "fixed", "rr": 2.0, "touches": 2, "strict": False, "zk": {"imp": 1.2, "cls": 0.8, "base_max": 1.0}},
+    "I. LOOSE 15m zones, both EMAs agree, next zone (max 3R)": {"zones": "15m", "trend": "both", "target": "zone", "min_rr": 1.5, "cap": 3, "touches": 2, "strict": False, "zk": {"imp": 1.2, "cls": 0.8, "base_max": 1.0}},
+    "J. LOOSE 4H zones, 4H EMA trend, 15m rejection, next zone (max 3R)": {"zones": "4h", "trend": "4h", "target": "zone", "min_rr": 1.5, "cap": 3, "touches": 2, "strict": False, "zk": {"imp": 1.2, "cls": 0.8, "base_max": 1.0}},
+    "K. LOOSE 4H zones, both EMAs agree, fixed 2R": {"zones": "4h", "trend": "both", "target": "fixed", "rr": 2.0, "touches": 2, "strict": False, "zk": {"imp": 1.2, "cls": 0.8, "base_max": 1.0}},
 }
 
 
