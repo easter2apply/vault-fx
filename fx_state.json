@@ -6,7 +6,7 @@
   "nav": 505.7249,
   "oanda_nav": 100004.3782,
   "unrealized": -1.3851,
-  "updated": 1792225211.57534
+  "updated": 1792225512.404703
  },
  "bot_username": "EVaultFX_bot",
  "chat_id": "7590441188",
@@ -4677,6 +4677,10 @@
   [
    1792224614,
    505.72
+  ],
+  [
+   1792225512,
+   505.72
   ]
  ],
  "errors": [
@@ -4762,67 +4766,6 @@
   }
  ],
  "feed": [
-  {
-   "kind": "scan",
-   "lines": [
-    {
-     "say": "\u25bc ADX 11, RSI 50: trend too weak, waiting",
-     "vote": null,
-     "who": "USD/JPY"
-    },
-    {
-     "say": "\u25b2 ADX 34, RSI 75: trending, waiting for a pullback",
-     "vote": null,
-     "who": "GBP/JPY"
-    },
-    {
-     "say": "\u25b2 ADX 28, RSI 70: in a trade",
-     "vote": null,
-     "who": "EUR/JPY"
-    },
-    {
-     "say": "\u25bc ADX 28, RSI 61: trending, waiting for a pullback",
-     "vote": null,
-     "who": "AUD/JPY"
-    },
-    {
-     "say": "\u25b2 ADX 37, RSI 78: in a trade",
-     "vote": null,
-     "who": "GBP/USD"
-    },
-    {
-     "say": "\u25bc ADX 29, RSI 63: in a trade",
-     "vote": null,
-     "who": "AUD/USD"
-    },
-    {
-     "say": "\u25bc ADX 34, RSI 26: trending, waiting for a pullback",
-     "vote": null,
-     "who": "USD/CHF"
-    },
-    {
-     "say": "\u25b2 ADX 28, RSI 70: trending, waiting for a pullback",
-     "vote": null,
-     "who": "EUR/USD"
-    }
-   ],
-   "ok": null,
-   "t": 1792154119.2032895,
-   "text": null,
-   "title": "Scanned 8 markets: 0 setups on the latest candle",
-   "verdict": null,
-   "who": null
-  },
-  {
-   "kind": "event",
-   "lines": [],
-   "ok": true,
-   "t": 1792154413.9731426,
-   "text": "EUR/JPY BUY closed +$5.28 (+1.05R). Record 14W\u201314L.",
-   "title": "EUR/JPY closed",
-   "verdict": null,
-   "who": "The Quant"
-  },
   {
    "kind": "event",
    "lines": [],
@@ -7489,6 +7432,67 @@
    "title": "Scanned 8 markets: 4 setups on the latest candle",
    "verdict": null,
    "who": null
+  },
+  {
+   "kind": "event",
+   "lines": [],
+   "ok": null,
+   "t": 1792225514.4552379,
+   "text": "AUD/USD sat for 25 hours (24h with no locked-in profit). Closed it to free the slot.",
+   "title": "AUD/USD closed on time",
+   "verdict": null,
+   "who": "Time"
+  },
+  {
+   "kind": "scan",
+   "lines": [
+    {
+     "say": "\u25bc ADX 12, RSI 50: pullback setup",
+     "vote": null,
+     "who": "USD/JPY"
+    },
+    {
+     "say": "\u25b2 ADX 39, RSI 61: trending, waiting for a pullback",
+     "vote": null,
+     "who": "GBP/JPY"
+    },
+    {
+     "say": "\u25b2 ADX 23, RSI 55: in a trade",
+     "vote": null,
+     "who": "EUR/JPY"
+    },
+    {
+     "say": "\u25bc ADX 18, RSI 50: pullback setup",
+     "vote": null,
+     "who": "AUD/JPY"
+    },
+    {
+     "say": "\u25b2 ADX 34, RSI 60: in a trade",
+     "vote": null,
+     "who": "GBP/USD"
+    },
+    {
+     "say": "\u25bc ADX 19, RSI 51: in a trade",
+     "vote": null,
+     "who": "AUD/USD"
+    },
+    {
+     "say": "\u25bc ADX 23, RSI 41: trending, waiting for a pullback",
+     "vote": null,
+     "who": "USD/CHF"
+    },
+    {
+     "say": "\u25b2 ADX 21, RSI 54: pullback setup",
+     "vote": null,
+     "who": "EUR/USD"
+    }
+   ],
+   "ok": null,
+   "t": 1792225519.481801,
+   "text": null,
+   "title": "Scanned 8 markets: 4 setups on the latest candle",
+   "verdict": null,
+   "who": null
   }
  ],
  "grading_v": 2,
@@ -10130,9 +10134,9 @@
   "USD_JPY:M15": "2026-10-16T17:00:00"
  },
  "last_daily": "2026-10-16",
- "last_deploy": 1792224621.80844,
- "last_full_run": 1792225211.57534,
- "last_run": 1792225211.57534,
+ "last_deploy": 1792225520.5364823,
+ "last_full_run": 1792225512.404703,
+ "last_run": 1792225512.404703,
  "last_vote": {
   "approved": true,
   "ask": 0,
