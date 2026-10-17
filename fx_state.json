@@ -6,7 +6,7 @@
   "nav": 505.7249,
   "oanda_nav": 100004.3782,
   "unrealized": -1.3851,
-  "updated": 1792229711.54065
+  "updated": 1792230012.440528
  },
  "bot_username": "EVaultFX_bot",
  "chat_id": "7590441188",
@@ -4697,6 +4697,10 @@
   [
    1792229114,
    505.72
+  ],
+  [
+   1792230012,
+   505.72
   ]
  ],
  "errors": [
@@ -4782,78 +4786,6 @@
   }
  ],
  "feed": [
-  {
-   "kind": "vote",
-   "lines": [
-    {
-     "say": "Numbers check out: ADX 43 (needs 18).",
-     "vote": true,
-     "who": "The Quant"
-    },
-    {
-     "say": "Blocked. Would fight the open USD/JPY trade (that one bets the yen goes up, this one bets it goes down).",
-     "vote": false,
-     "who": "Risk"
-    },
-    {
-     "say": "Engine's running: MACD with us (up).",
-     "vote": true,
-     "who": "Momentum"
-    },
-    {
-     "say": "Good window. RSI 68.",
-     "vote": true,
-     "who": "Time"
-    },
-    {
-     "say": "Hm. A decent hour for this. I can't argue.",
-     "vote": true,
-     "who": "Doubt"
-    }
-   ],
-   "ok": false,
-   "t": 1792160419.4195292,
-   "text": null,
-   "title": "GBP/JPY BUY (pullback 15m)",
-   "verdict": "REJECTED 4\u20131. Logged on paper so we learn whether we were right.",
-   "who": null
-  },
-  {
-   "kind": "vote",
-   "lines": [
-    {
-     "say": "Numbers check out: ADX 31 (needs 18).",
-     "vote": true,
-     "who": "The Quant"
-    },
-    {
-     "say": "Blocked. Already 2 trades betting the dollar goes down; benched: pullback 15m setups on EUR/USD have been losing (-0.07R).",
-     "vote": false,
-     "who": "Risk"
-    },
-    {
-     "say": "Engine's running: MACD with us (up).",
-     "vote": true,
-     "who": "Momentum"
-    },
-    {
-     "say": "Good window. RSI 57.",
-     "vote": true,
-     "who": "Time"
-    },
-    {
-     "say": "Hm. A decent hour for this. I can't argue.",
-     "vote": true,
-     "who": "Doubt"
-    }
-   ],
-   "ok": false,
-   "t": 1792160423.3834128,
-   "text": null,
-   "title": "EUR/USD BUY (pullback 15m)",
-   "verdict": "REJECTED 4\u20131. Logged on paper so we learn whether we were right.",
-   "who": null
-  },
   {
    "kind": "scan",
    "lines": [
@@ -7413,6 +7345,67 @@
    ],
    "ok": null,
    "t": 1792229715.3129299,
+   "text": null,
+   "title": "Scanned 8 markets: 4 setups on the latest candle",
+   "verdict": null,
+   "who": null
+  },
+  {
+   "kind": "event",
+   "lines": [],
+   "ok": null,
+   "t": 1792230014.1982071,
+   "text": "AUD/USD sat for 26 hours (24h with no locked-in profit). Closed it to free the slot.",
+   "title": "AUD/USD closed on time",
+   "verdict": null,
+   "who": "Time"
+  },
+  {
+   "kind": "scan",
+   "lines": [
+    {
+     "say": "\u25bc ADX 12, RSI 50: pullback setup",
+     "vote": null,
+     "who": "USD/JPY"
+    },
+    {
+     "say": "\u25b2 ADX 39, RSI 61: trending, waiting for a pullback",
+     "vote": null,
+     "who": "GBP/JPY"
+    },
+    {
+     "say": "\u25b2 ADX 23, RSI 55: in a trade",
+     "vote": null,
+     "who": "EUR/JPY"
+    },
+    {
+     "say": "\u25bc ADX 18, RSI 50: pullback setup",
+     "vote": null,
+     "who": "AUD/JPY"
+    },
+    {
+     "say": "\u25b2 ADX 34, RSI 60: in a trade",
+     "vote": null,
+     "who": "GBP/USD"
+    },
+    {
+     "say": "\u25bc ADX 19, RSI 51: in a trade",
+     "vote": null,
+     "who": "AUD/USD"
+    },
+    {
+     "say": "\u25bc ADX 23, RSI 41: trending, waiting for a pullback",
+     "vote": null,
+     "who": "USD/CHF"
+    },
+    {
+     "say": "\u25b2 ADX 21, RSI 54: pullback setup",
+     "vote": null,
+     "who": "EUR/USD"
+    }
+   ],
+   "ok": null,
+   "t": 1792230017.340618,
    "text": null,
    "title": "Scanned 8 markets: 4 setups on the latest candle",
    "verdict": null,
@@ -10058,9 +10051,9 @@
   "USD_JPY:M15": "2026-10-16T17:00:00"
  },
  "last_daily": "2026-10-16",
- "last_deploy": 1792229120.1470733,
- "last_full_run": 1792229711.54065,
- "last_run": 1792229711.54065,
+ "last_deploy": 1792230018.238291,
+ "last_full_run": 1792230012.440528,
+ "last_run": 1792230012.440528,
  "last_vote": {
   "approved": true,
   "ask": 0,
