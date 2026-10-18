@@ -2,11 +2,11 @@
  "account": {
   "balance": 498.18,
   "currency": "USD",
-  "margin_avail": 99830.8732,
-  "nav": 496.9307,
-  "oanda_nav": 99995.5856,
-  "unrealized": -1.2493,
-  "updated": 1792359311.714101
+  "margin_avail": 99830.2851,
+  "nav": 496.35290000000003,
+  "oanda_nav": 99995.0078,
+  "unrealized": -1.8271,
+  "updated": 1792359613.869045
  },
  "bot_username": "EVaultFX_bot",
  "chat_id": "7590441188",
@@ -5310,13 +5310,13 @@
   [
    1792358711,
    498.18
+  ],
+  [
+   1792359614,
+   496.35
   ]
  ],
  "errors": [
-  {
-   "t": 1792187120.6759973,
-   "text": "Run failed: 503: {\"errorMessage\":\"System under maintenance, please try again later.\"}"
-  },
   {
    "t": 1792187420.5028055,
    "text": "Run failed: 503: {\"errorMessage\":\"System under maintenance, please try again later.\"}"
@@ -5392,6 +5392,10 @@
   {
    "t": 1792357224.4902081,
    "text": "Run failed: 401: {\"errorMessage\":\"Insufficient authorization to perform request.\"}"
+  },
+  {
+   "t": 1792359638.6609015,
+   "text": "EUR_JPY: proving ground skipped (504: <!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"utf-8\"/>\n    <title>Internal Server Error</title>\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\n    <link rel=\"preload\" as=\"style\" href=\"https://use.typekit.net/bhw2bat.css\"\n          o"
   }
  ],
  "feed": [
@@ -7198,7 +7202,7 @@
     }
    ],
    "ok": null,
-   "t": 1792359319.0768726,
+   "t": 1792359638.651744,
    "text": null,
    "title": "Scanned 8 markets: 4 setups on the latest candle",
    "verdict": null,
@@ -9845,8 +9849,8 @@
  },
  "last_daily": "2026-10-18",
  "last_deploy": 1792359032.2836514,
- "last_full_run": 1792359311.714101,
- "last_run": 1792359311.714101,
+ "last_full_run": 1792359613.869045,
+ "last_run": 1792359613.869045,
  "last_vote": {
   "approved": false,
   "ask": 0,
@@ -13352,13 +13356,13 @@
     "session": false,
     "tf": "H1",
     "waiting": [
-     "spread is 42% of ATR",
+     "spread is 58% of ATR",
      "RSI 55, outside trading hours"
     ]
    },
    "rsi": 55.467932598232146,
    "setup": "pullback",
-   "spread_pips": 7.70000000000266,
+   "spread_pips": 10.599999999999454,
    "tradeable": true,
    "trend": 1
   },
@@ -13374,17 +13378,17 @@
     "dir": 1,
     "in_trade": false,
     "of": 6,
-    "passed": 4,
+    "passed": 3,
     "session": false,
     "tf": "H1",
     "waiting": [
-     "RSI 54, outside trading hours",
-     "one of the weakest hours in Inspector's replay"
+     "spread is 26% of ATR",
+     "RSI 54, outside trading hours"
     ]
    },
    "rsi": 53.947938399689804,
    "setup": "pullback",
-   "spread_pips": 3.1000000000003247,
+   "spread_pips": 3.5000000000007248,
    "tradeable": true,
    "trend": 1
   },
@@ -13430,13 +13434,13 @@
     "session": false,
     "tf": "M15",
     "waiting": [
-     "spread is 137% of ATR",
+     "spread is 131% of ATR",
      "RSI 33, outside trading hours"
     ]
    },
    "rsi": 59.752308106479475,
    "setup": null,
-   "spread_pips": 8.900000000000574,
+   "spread_pips": 8.500000000000174,
    "tradeable": true,
    "trend": 1
   },
@@ -13488,7 +13492,7 @@
    },
    "rsi": 41.44611148156453,
    "setup": null,
-   "spread_pips": 15.099999999999003,
+   "spread_pips": 15.100000000000113,
    "tradeable": true,
    "trend": -1
   },
@@ -13514,7 +13518,7 @@
    },
    "rsi": 49.670051207343306,
    "setup": "pullback",
-   "spread_pips": 9.999999999999432,
+   "spread_pips": 10.000000000002274,
    "tradeable": true,
    "trend": -1
   }
@@ -14787,7 +14791,7 @@
    "entry": 176.775,
    "opened": "2026-10-18T21:25:11",
    "pair": "EUR_JPY",
-   "price": 176.80349999999999,
+   "price": 176.82,
    "r0": 0.26723302712986197,
    "risk": 4.98,
    "setup": "crossover 15m",
@@ -14795,7 +14799,7 @@
    "tf": "M15",
    "tp": 176.3891504593052,
    "units": 2945,
-   "upl": -1.2493,
+   "upl": -1.8271,
    "votes": {
     "Doubt": false,
     "Momentum": true,
