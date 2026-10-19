@@ -2,11 +2,11 @@
  "account": {
   "balance": 477.14,
   "currency": "USD",
-  "margin_avail": 99929.2633,
-  "nav": 480.90639999999996,
-  "oanda_nav": 99979.561,
-  "unrealized": 3.7664,
-  "updated": 1792420815.288057
+  "margin_avail": 99929.3106,
+  "nav": 480.95439999999996,
+  "oanda_nav": 99979.609,
+  "unrealized": 3.8144,
+  "updated": 1792421116.931949
  },
  "bot_username": "EVaultFX_bot",
  "chat_id": "7590441188",
@@ -8667,7 +8667,7 @@
     }
    ],
    "ok": null,
-   "t": 1792420836.0157502,
+   "t": 1792421142.2508328,
    "text": null,
    "title": "Scanned 8 markets: 2 setups on the latest candle",
    "verdict": null,
@@ -8676,11 +8676,6 @@
  ],
  "grading_v": 2,
  "hindsight": [
-  {
-   "kind": "vote",
-   "t": 1792377917.9837828,
-   "text": "Council rejected GBP/JPY BUY (pullback 15m) 3\u20132. In my files, 15-minute pullback setups are GUILTY (-0.31R over 21,549)."
-  },
   {
    "kind": "vote",
    "t": 1792379117.5317395,
@@ -8875,6 +8870,11 @@
    "kind": "paper",
    "t": 1792419350.328907,
    "text": "New York opening range would SELL EUR/USD now: broke below the New York opening range."
+  },
+  {
+   "kind": "paper",
+   "t": 1792421126.3385477,
+   "text": "New York opening range closed its paper SELL on EUR/JPY: -1.00R (stop)."
   }
  ],
  "history": [
@@ -11314,8 +11314,8 @@
  },
  "last_daily": "2026-10-18",
  "last_deploy": 1792420558.0612483,
- "last_full_run": 1792420815.288057,
- "last_run": 1792420815.288057,
+ "last_full_run": 1792421116.931949,
+ "last_run": 1792421116.931949,
  "last_vote": {
   "approved": false,
   "ask": 0,
@@ -14833,7 +14833,7 @@
    },
    "rsi": 74.07362819849091,
    "setup": null,
-   "spread_pips": 2.400000000000091,
+   "spread_pips": 2.2999999999996135,
    "tradeable": true,
    "trend": 1
   },
@@ -14883,7 +14883,7 @@
    },
    "rsi": 57.33241054960863,
    "setup": null,
-   "spread_pips": 2.6999999999986812,
+   "spread_pips": 2.7999999999991587,
    "tradeable": true,
    "trend": 1
   },
@@ -14906,7 +14906,7 @@
    },
    "rsi": 49.86472401608625,
    "setup": "pullback",
-   "spread_pips": 1.7000000000000348,
+   "spread_pips": 1.5999999999993797,
    "tradeable": true,
    "trend": 1
   },
@@ -14931,7 +14931,7 @@
    },
    "rsi": 66.46868668472797,
    "setup": null,
-   "spread_pips": 3.900000000001569,
+   "spread_pips": 3.3999999999991815,
    "tradeable": true,
    "trend": 1
   },
@@ -14954,7 +14954,7 @@
    },
    "rsi": 53.13592864761393,
    "setup": "pullback",
-   "spread_pips": 1.7000000000000348,
+   "spread_pips": 1.9999999999997797,
    "tradeable": true,
    "trend": 1
   },
@@ -14993,19 +14993,20 @@
    "h4_trend": 1,
    "prec": 5,
    "ready": {
-    "dir": 1,
+    "dir": -1,
     "in_trade": false,
     "of": 6,
-    "passed": 5,
+    "passed": 4,
     "session": true,
-    "tf": "M15",
+    "tf": "H1",
     "waiting": [
-     "ADX 13 (needs 18)"
+     "a pullback to the trend line or a fresh crossover",
+     "ADX 10 (needs 18)"
     ]
    },
    "rsi": 50.112987696893676,
    "setup": null,
-   "spread_pips": 1.5999999999993797,
+   "spread_pips": 1.7000000000000348,
    "tradeable": true,
    "trend": -1
   },
@@ -15030,7 +15031,7 @@
    },
    "rsi": 63.02795870717886,
    "setup": null,
-   "spread_pips": 1.6999999999995907,
+   "spread_pips": 1.500000000001478,
    "tradeable": true,
    "trend": 1
   }
@@ -15611,6 +15612,15 @@
      "r": 1.5,
      "t": "2026-10-16T15:45:00",
      "why": "broke below the New York opening range"
+    },
+    {
+     "closed": "2026-10-19T14:15:00",
+     "dir": -1,
+     "how": "stop",
+     "pair": "EUR_JPY",
+     "r": -1.0,
+     "t": "2026-10-19T14:00:00",
+     "why": "broke below the New York opening range"
     }
    ],
    "open": {
@@ -15619,8 +15629,8 @@
      "dir": 1,
      "entry": 110.735,
      "hs": 0.010500000000000398,
-     "last_ts": 1792420200,
-     "now_r": -0.25,
+     "last_ts": 1792421100,
+     "now_r": -0.4,
      "risk": 0.10499999999998977,
      "stop": 110.63000000000001,
      "t": "2026-10-19T14:00:00",
@@ -15630,29 +15640,13 @@
      "until": 1792440900,
      "why": "broke above the New York opening range"
     },
-    "EUR_JPY": {
-     "cost_r": 0.3489932885907423,
-     "dir": -1,
-     "entry": 177.624,
-     "hs": 0.01300000000000523,
-     "last_ts": 1792419300,
-     "now_r": -0.7,
-     "risk": 0.07450000000000045,
-     "stop": 177.6985,
-     "t": "2026-10-19T14:00:00",
-     "tp": 177.51225,
-     "trail": false,
-     "ts": 1792419300,
-     "until": 1792440900,
-     "why": "broke below the New York opening range"
-    },
     "EUR_USD": {
      "cost_r": 0.15178571428571605,
      "dir": -1,
      "entry": 1.12103,
      "hs": 8.500000000000174e-05,
-     "last_ts": 1792420200,
-     "now_r": -0.26,
+     "last_ts": 1792421100,
+     "now_r": -0.36,
      "risk": 0.0011200000000000099,
      "stop": 1.12215,
      "t": "2026-10-19T14:00:00",
@@ -15667,8 +15661,8 @@
      "dir": -1,
      "entry": 1.33152,
      "hs": 8.500000000000174e-05,
-     "last_ts": 1792419300,
-     "now_r": 0.0,
+     "last_ts": 1792421100,
+     "now_r": -0.05,
      "risk": 0.0009500000000000064,
      "stop": 1.33247,
      "t": "2026-10-19T14:00:00",
@@ -15683,8 +15677,8 @@
      "dir": 1,
      "entry": 0.82583,
      "hs": 7.999999999996898e-05,
-     "last_ts": 1792420200,
-     "now_r": -0.15,
+     "last_ts": 1792421100,
+     "now_r": -0.11,
      "risk": 0.0008700000000000374,
      "stop": 0.8249599999999999,
      "t": "2026-10-19T14:00:00",
@@ -15699,8 +15693,8 @@
      "dir": 1,
      "entry": 158.453,
      "hs": 0.00750000000000739,
-     "last_ts": 1792420200,
-     "now_r": -0.03,
+     "last_ts": 1792421100,
+     "now_r": -0.54,
      "risk": 0.10099999999999909,
      "stop": 158.352,
      "t": "2026-10-19T14:00:00",
@@ -15808,8 +15802,8 @@
      "dir": 1,
      "entry": 0.69747,
      "hs": 7.00000000000145e-05,
-     "last_ts": 1792420200,
-     "now_r": 0.84,
+     "last_ts": 1792421100,
+     "now_r": 0.85,
      "risk": 0.0015910714285714317,
      "stop": 0.6976389285714286,
      "t": "2026-10-19T02:45:00",
@@ -15824,15 +15818,15 @@
   }
  },
  "paper_bar": {
-  "AUD_JPY": "2026-10-19T14:15:00",
-  "AUD_USD": "2026-10-19T14:15:00",
-  "EUR_JPY": "2026-10-19T14:00:00",
-  "EUR_USD": "2026-10-19T14:15:00",
-  "GBP_JPY": "2026-10-19T14:15:00",
-  "GBP_USD": "2026-10-19T14:00:00",
+  "AUD_JPY": "2026-10-19T14:30:00",
+  "AUD_USD": "2026-10-19T14:30:00",
+  "EUR_JPY": "2026-10-19T14:30:00",
+  "EUR_USD": "2026-10-19T14:30:00",
+  "GBP_JPY": "2026-10-19T14:30:00",
+  "GBP_USD": "2026-10-19T14:30:00",
   "USD_CAD": "2026-10-16T02:00:00",
-  "USD_CHF": "2026-10-19T14:15:00",
-  "USD_JPY": "2026-10-19T14:15:00"
+  "USD_CHF": "2026-10-19T14:30:00",
+  "USD_JPY": "2026-10-19T14:30:00"
  },
  "parties": [
   {
@@ -16418,7 +16412,7 @@
    "entry": 0.69717,
    "opened": "2026-10-19T00:05:12",
    "pair": "AUD_USD",
-   "price": 0.698805,
+   "price": 0.698825,
    "r0": 0.0020512220731712105,
    "risk": 4.92,
    "setup": "crossover",
@@ -16426,7 +16420,7 @@
    "tf": "H1",
    "tp": 0.7002468331097567,
    "units": 2399,
-   "upl": 3.7664,
+   "upl": 3.8144,
    "votes": {
     "Doubt": true,
     "Momentum": true,
