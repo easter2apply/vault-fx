@@ -2,11 +2,11 @@
  "account": {
   "balance": 477.14,
   "currency": "USD",
-  "margin_avail": 99928.0765,
-  "nav": 479.68289999999996,
-  "oanda_nav": 99978.3375,
-  "unrealized": 2.5429,
-  "updated": 1792424311.98774
+  "margin_avail": 99926.9356,
+  "nav": 478.50739999999996,
+  "oanda_nav": 99977.162,
+  "unrealized": 1.3674,
+  "updated": 1792427356.337949
  },
  "bot_username": "EVaultFX_bot",
  "chat_id": "7590441188",
@@ -5747,6 +5747,10 @@
   [
    1792424312,
    479.68
+  ],
+  [
+   1792427356,
+   478.51
   ]
  ],
  "errors": [
@@ -8667,7 +8671,7 @@
      "who": "GBP/USD"
     },
     {
-     "say": "\u25b2 ADX 36, RSI 60: in a trade",
+     "say": "\u25b2 ADX 35, RSI 57: in a trade",
      "vote": null,
      "who": "AUD/USD"
     },
@@ -8683,7 +8687,7 @@
     }
    ],
    "ok": null,
-   "t": 1792424320.1944244,
+   "t": 1792427398.1700506,
    "text": null,
    "title": "Scanned 8 markets: 0 setups on the latest candle",
    "verdict": null,
@@ -8692,11 +8696,6 @@
  ],
  "grading_v": 2,
  "hindsight": [
-  {
-   "kind": "paper",
-   "t": 1792379121.297009,
-   "text": "Trend + rising volatility would BUY AUD/USD now: volatility up 39% and a fresh 24-hour high."
-  },
   {
    "kind": "close",
    "t": 1792379412.8270812,
@@ -8891,6 +8890,11 @@
    "kind": "paper",
    "t": 1792424320.1942077,
    "text": "New York opening range closed its paper SELL on EUR/USD: -1.00R (stop)."
+  },
+  {
+   "kind": "paper",
+   "t": 1792427387.7294207,
+   "text": "Trend + rising volatility closed its paper BUY on AUD/USD: +0.11R (stop)."
   }
  ],
  "history": [
@@ -11329,9 +11333,9 @@
   "USD_JPY:M15": "2026-10-19T07:30:00"
  },
  "last_daily": "2026-10-18",
- "last_deploy": 1792424320.2179675,
- "last_full_run": 1792424311.98774,
- "last_run": 1792424311.98774,
+ "last_deploy": 1792427398.2077627,
+ "last_full_run": 1792427356.337949,
+ "last_run": 1792427356.337949,
  "last_vote": {
   "approved": false,
   "ask": 0,
@@ -14855,27 +14859,28 @@
    "trend": 1
   },
   "AUD_USD": {
-   "adx": 35.890646197721956,
-   "atr_pips": 8.852342289765577,
-   "bar": "2026-10-19T14:00:00",
-   "chg": 0.26557565317255505,
-   "close": 0.69845,
+   "adx": 35.47055062657612,
+   "atr_pips": 8.634317840845545,
+   "bar": "2026-10-19T15:00:00",
+   "chg": 0.4446618986631256,
+   "close": 0.698,
    "h4_trend": -1,
    "prec": 5,
    "ready": {
     "dir": 1,
     "in_trade": true,
     "of": 6,
-    "passed": 5,
+    "passed": 4,
     "session": true,
     "tf": "H1",
     "waiting": [
-     "a pullback to the trend line or a fresh crossover"
+     "a pullback to the trend line or a fresh crossover",
+     "MACD against us (up)"
     ]
    },
-   "rsi": 60.17153769592862,
+   "rsi": 56.617755250303986,
    "setup": null,
-   "spread_pips": 1.2999999999996348,
+   "spread_pips": 1.3999999999991797,
    "tradeable": true,
    "trend": 1
   },
@@ -15667,8 +15672,8 @@
      "dir": -1,
      "entry": 0.69803,
      "hs": 6.499999999998174e-05,
-     "last_ts": 1792423800,
-     "now_r": -0.53,
+     "last_ts": 1792426500,
+     "now_r": 0.44,
      "risk": 0.000500000000000056,
      "stop": 0.6985300000000001,
      "t": "2026-10-19T15:00:00",
@@ -15816,32 +15821,24 @@
      "r": -0.984,
      "t": "2026-10-15T13:45:00",
      "why": "volatility up 80% and a fresh 24-hour low"
-    }
-   ],
-   "open": {
-    "AUD_USD": {
-     "cost_r": 0.0879910213243727,
+    },
+    {
+     "closed": "2026-10-19T16:00:00",
      "dir": 1,
-     "entry": 0.69747,
-     "hs": 7.00000000000145e-05,
-     "last_ts": 1792423800,
-     "now_r": 0.52,
-     "risk": 0.0015910714285714317,
-     "stop": 0.6976389285714286,
+     "how": "stop",
+     "pair": "AUD_USD",
+     "r": 0.106,
      "t": "2026-10-19T02:45:00",
-     "tp": null,
-     "trail": true,
-     "ts": 1792378800,
-     "until": 1792638000,
      "why": "volatility up 39% and a fresh 24-hour high"
     }
-   },
+   ],
+   "open": {},
    "started": 1791853811.642428
   }
  },
  "paper_bar": {
   "AUD_JPY": "2026-10-19T15:15:00",
-  "AUD_USD": "2026-10-19T15:15:00",
+  "AUD_USD": "2026-10-19T16:00:00",
   "EUR_JPY": "2026-10-19T15:15:00",
   "EUR_USD": "2026-10-19T15:15:00",
   "GBP_JPY": "2026-10-19T15:15:00",
@@ -16395,8 +16392,8 @@
    "s": "GBP/USD"
   },
   {
-   "c": 0.27,
-   "p": "0.69845",
+   "c": 0.44,
+   "p": "0.69800",
    "s": "AUD/USD"
   },
   {
@@ -16417,7 +16414,7 @@
    "entry": 0.69717,
    "opened": "2026-10-19T00:05:12",
    "pair": "AUD_USD",
-   "price": 0.698295,
+   "price": 0.69781,
    "r0": 0.0020512220731712105,
    "risk": 4.92,
    "setup": "crossover",
@@ -16425,7 +16422,7 @@
    "tf": "H1",
    "tp": 0.7002468331097567,
    "units": 2399,
-   "upl": 2.5429,
+   "upl": 1.3674,
    "votes": {
     "Doubt": true,
     "Momentum": true,
