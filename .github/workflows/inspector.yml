@@ -21,18 +21,18 @@ jobs:
           OANDA_API_TOKEN: ${{ secrets.OANDA_API_TOKEN }}
           OANDA_ACCOUNT_ID: ${{ secrets.OANDA_ACCOUNT_ID }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        run: python ema_check_lab.py
+        run: python crt_lab.py
       - name: Save the report
         run: |
-          mkdir -p /tmp/report && cp ema_check.json ema_candles.json /tmp/report/
+          mkdir -p /tmp/report && cp crt_lab.json /tmp/report/
           git config user.name "carry-lab"
           git config user.email "carry-lab@users.noreply.github.com"
           for i in 1 2 3 4 5; do
             git fetch -q origin carry-lab && git reset -q --hard origin/carry-lab
             cp /tmp/report/* .
-            git add ema_check.json ema_candles.json
+            git add crt_lab.json
             git diff --cached --quiet && exit 0
-            git commit -qm "EMA check" && git push -q origin HEAD:carry-lab && exit 0
+            git commit -qm "CRT Lab report" && git push -q origin HEAD:carry-lab && exit 0
             sleep 5
           done
           exit 1
