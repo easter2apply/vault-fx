@@ -32,7 +32,19 @@ import urllib.request
 from zoneinfo import ZoneInfo
 
 # ─────────────────────────── SETTINGS (edit these) ───────────────────────────
-PAIRS = ["USD_JPY", "GBP_JPY", "EUR_JPY", "AUD_JPY", "GBP_USD", "AUD_USD", "USD_CHF", "EUR_USD"]   # the biggest movers for their cost (Move Lab, Oct 2026)
+PAIRS = ["EUR_USD", "GBP_USD", "AUD_USD", "NZD_USD", "USD_JPY", "USD_CHF", "USD_CAD",
+         "EUR_JPY", "GBP_JPY", "AUD_JPY", "NZD_JPY", "CAD_JPY", "CHF_JPY",
+         "EUR_GBP", "EUR_AUD", "EUR_NZD", "EUR_CAD", "EUR_CHF",
+         "GBP_AUD", "GBP_NZD", "GBP_CAD", "GBP_CHF",
+         "AUD_NZD", "AUD_CAD", "AUD_CHF", "NZD_CAD", "NZD_CHF", "CAD_CHF"]   # all 28 major pairs (200 EMA strategy tested best on all 28)
+MAIN_STRATEGY = "ema200"     # Easter's 200 EMA + supply/demand strategy is the only strategy (Oct 2026)
+OLD_SETUPS = False           # the old pullback / crossover / London breakout setups are off (they tested negative)
+EMA_SLOPE_MIN = 1.0          # The Quant: the 200 EMA must move at least 1 ATR over 50 candles (15-min chart)
+EMA_SLOPE_N = 50
+EMA_CANDLES = 1000           # 15-min candles pulled per pair (about 10 trading days) for the EMA, zones and swings
+EMA_FRESH_MIN = 20           # only act on a signal whose 2nd confirmation candle closed in the last 20 minutes
+EMA_MAX_HOLD_H = 120         # close after 5 days if neither the stop nor the swing target is hit
+EMA_ROLLOVER_UTC = (21, 22)  # no new trades around the 5 PM ET rollover (spreads blow out)
 MAX_SAME_DOLLAR_BETS = 2     # never more than 2 open trades betting the same way on any one currency (dollar, yen, pound...)
 START_BALANCE = 500.00       # the bot trades as if the account holds this much (set to None to use the real OANDA balance)
 RISK_PCT = 0.01              # risk 1% of account value per trade (distance to stop × units)
@@ -97,13 +109,11 @@ LOCAL_TZ = ZoneInfo("America/New_York")
 OANDA_ENV = os.environ.get("OANDA_ENV", "practice").strip().lower() or "practice"
 OANDA = ("https://api-fxtrade.oanda.com/v3" if OANDA_ENV == "live"
          else "https://api-fxpractice.oanda.com/v3")
-NAMES = {"EUR_USD": "EUR/USD", "GBP_USD": "GBP/USD", "AUD_USD": "AUD/USD", "USD_JPY": "USD/JPY",
-         "USD_CAD": "USD/CAD", "USD_CHF": "USD/CHF", "XAU_USD": "Gold", "GBP_JPY": "GBP/JPY", "EUR_JPY": "EUR/JPY",
-         "AUD_JPY": "AUD/JPY"}
+NAMES = {**{p: p.replace("_", "/") for p in PAIRS}, "XAU_USD": "Gold"}
 VOTERS = ["The Quant", "Risk", "Momentum", "Time", "Doubt"]
-ROLES = {"The Quant": "trend strength (ADX)", "Risk": "spread, exposure and loss limits",
-         "Momentum": "MACD agrees and is building", "Time": "not overextended, in session",
-         "Doubt": "the 4-hour trend agrees"}
+ROLES = {"The Quant": "the 200 EMA is sloping (a real trend, not sideways)", "Risk": "a swing target to aim for, plus exposure and loss limits",
+         "Momentum": "two convincing candles after the tap", "Time": "price tapped the 200 EMA exactly",
+         "Doubt": "the 200 EMA sits in a supply or demand zone"}
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -396,6 +406,278 @@ def council(a, spread, risk_ok, risk_why, now_utc, pair=None):
     return v
 
 
+# ───────────────────────────── Easter's 200 EMA + supply/demand strategy ─────────────────────────────
+
+def _atr_list(b, n=14):
+    out, a = [], None
+    for i, x in enumerate(b):
+        tr = x["h"] - x["l"] if i == 0 else max(x["h"] - x["l"], abs(x["h"] - b[i - 1]["c"]), abs(x["l"] - b[i - 1]["c"]))
+        a = tr if a is None else (a * (n - 1) + tr) / n
+        out.append(a)
+    return out
+
+
+def _find_zones(bars, atr, imp=1.5, cls=1.0, base_max=1.0):
+    """Supply/demand zones: a base of 1-3 small candles, then a big move away (confirmed when the move's last candle closes)."""
+    zones = []
+    for i in range(20, len(bars) - 1):
+        a = atr[i - 1]
+        if not a:
+            continue
+        for blen in (1, 2, 3):
+            base = bars[i - blen:i]
+            if len(base) < blen or any(b["h"] - b["l"] > base_max * a for b in base):
+                continue
+            hi, lo = max(b["h"] for b in base), min(b["l"] for b in base)
+            hit = None
+            for k in (1, 2):
+                mv = bars[i:i + k]
+                if len(mv) < k:
+                    continue
+                if max(b["h"] for b in mv) - hi > imp * a and mv[-1]["c"] > hi + cls * a:
+                    hit = {"kind": "demand", "hi": hi, "lo": lo, "known": i + k}; break
+                if lo - min(b["l"] for b in mv) > imp * a and mv[-1]["c"] < lo - cls * a:
+                    hit = {"kind": "supply", "hi": hi, "lo": lo, "known": i + k}; break
+            if hit:
+                zones.append(hit); break
+    return zones
+
+
+def _live_zones(bars, zones, i):
+    out = []
+    for z in zones:
+        if z["known"] > i:
+            continue
+        if not any((z["kind"] == "demand" and bars[j]["c"] < z["lo"]) or (z["kind"] == "supply" and bars[j]["c"] > z["hi"])
+                   for j in range(z["known"], i + 1)):
+            out.append(z)
+    return out
+
+
+def _pivots(bars, k=3):
+    hi, lo = [], []
+    for i in range(k, len(bars) - k):
+        if all(bars[i]["h"] >= bars[j]["h"] for j in range(i - k, i + k + 1)):
+            hi.append((i + k, bars[i]["h"]))
+        if all(bars[i]["l"] <= bars[j]["l"] for j in range(i - k, i + k + 1)):
+            lo.append((i + k, bars[i]["l"]))
+    return hi, lo
+
+
+def _strong(b, d, a):
+    body, rng = (b["c"] - b["o"]) * d, b["h"] - b["l"]
+    return body > 0 and rng > 0 and body >= 0.6 * rng and body >= 0.25 * a
+
+
+def ema200_taps(pair, bars, after_t, prec=5):
+    """Every tap of a sloping 200 EMA (15-min candles {t,o,h,l,c,sp}) whose confirmation window has closed and is newer
+    than after_t. Each card carries the five members' votes. All five YES = a trade:
+      The Quant  – the 200 EMA is sloping (moved at least EMA_SLOPE_MIN ATR over 50 candles)
+      Time       – price tapped the 200 EMA exactly
+      Doubt      – the 200 EMA sits in a supply (sells) or demand (buys) zone
+      Momentum   – two very convincing candles after the tap; entry at the 2nd close
+      Risk       – a previous swing high/low to aim for (target); stop past the 1st confirmation candle"""
+    n = len(bars)
+    atr = _atr_list(bars)
+    e200 = ema([b["c"] for b in bars], 200)
+    zones = _find_zones(bars, atr)
+    sh, sl = _pivots(bars)
+    f = lambda x: f"{x:.{prec}f}"
+    cards, flat = [], 0
+    for i in range(max(260, n - 200), n - 2):
+        if bars[i]["t"] <= after_t:
+            continue
+        a, e = atr[i], e200[i]
+        if not a:
+            continue
+        slope = (e - e200[i - EMA_SLOPE_N]) / a
+        d = 1 if slope > 0 else -1
+        b = bars[i]
+        if not all((bars[j]["c"] - e200[j]) * d > 0 for j in range(i - 3, i)):
+            continue
+        if not ((b["l"] <= e) if d == 1 else (b["h"] >= e)):
+            continue
+        if abs(slope) < EMA_SLOPE_MIN:
+            flat += 1
+            continue
+        v = {"The Quant": (True, f"200 EMA is {'rising' if d == 1 else 'falling'} {abs(slope):.1f} ATR over 50 candles (needs {EMA_SLOPE_MIN:g})"),
+             "Time": (True, f"candle {'low' if d == 1 else 'high'} tapped the 200 EMA at {f(e)}")}
+        want = "demand" if d == 1 else "supply"
+        lz = [z for z in _live_zones(bars, zones, i) if z["kind"] == want and z["lo"] - 0.5 * a <= e <= z["hi"] + 0.5 * a]
+        v["Doubt"] = ((True, f"EMA sits in a {want} zone ({f(lz[-1]['lo'])}–{f(lz[-1]['hi'])})") if lz else
+                      (False, f"no fresh {want} zone at the EMA: just a line, no confluence"))
+        c1 = None
+        for s_ in (i, i + 1):
+            if s_ + 1 < n and _strong(bars[s_], d, a) and _strong(bars[s_ + 1], d, a) and (bars[s_ + 1]["c"] - e200[s_ + 1]) * d > 0:
+                c1 = s_; break
+        if c1 is not None:
+            v["Momentum"] = (True, f"two convincing {'bullish' if d == 1 else 'bearish'} candles closed ({bars[c1]['t'][11:16]} and {bars[c1 + 1]['t'][11:16]} UTC)")
+        else:
+            kinds = ["strong" if _strong(bars[k], d, a) else "weak" for k in (i, i + 1, i + 2)]
+            v["Momentum"] = (False, f"no two convincing candles in a row (got {', '.join(kinds)}): possible fake-out")
+        entry = stop = tp = rr = None
+        if c1 is not None:
+            c2 = c1 + 1
+            entry = bars[c2]["c"]
+            stop = (bars[c1]["l"] if d == 1 else bars[c1]["h"]) - d * bars[c2].get("sp", 0)
+            risk = abs(entry - stop)
+            cands = ([p for k, p in sh if k <= c2 and p > entry and k >= c2 - 300] if d == 1
+                     else [p for k, p in sl if k <= c2 and p < entry and k >= c2 - 300])
+            if cands and risk > 0:
+                tp = cands[-1]; rr = abs(tp - entry) / risk
+                v["Risk"] = (True, f"target the previous swing {'high' if d == 1 else 'low'} at {f(tp)} ({rr:.1f}R), stop {f(stop)}")
+            else:
+                v["Risk"] = (False, f"no previous swing {'high' if d == 1 else 'low'} to aim for")
+        else:
+            v["Risk"] = (None, "didn't get this far")
+        cards.append({"t": bars[i]["t"], "pair": pair, "dir": d, "ok": all(x[0] for x in v.values()), "votes": v,
+                      "entry": entry, "stop": stop, "tp": tp, "rr": round(rr, 2) if rr else None,
+                      "entry_t": bars[c1 + 1]["t"] if c1 is not None else None})
+    return cards, flat
+
+
+def ema_check(api, st, pair, p, inf, nav, now, news, open_pairs, today, log, tg):
+    """Once per new 15-min candle: find new 200 EMA taps on this pair, let the members vote, trade the ones all five approve."""
+    E = st.setdefault("ema", {})
+    bucket = int(now.timestamp() // 900)
+    if E.setdefault("bkt", {}).get(pair) == bucket:
+        return
+    rows = api.get(f"/instruments/{pair}/candles", granularity="M15", count=EMA_CANDLES, price="MBA")["candles"]
+    bars = [{"t": c["time"][:19], "o": float(c["mid"]["o"]), "h": float(c["mid"]["h"]), "l": float(c["mid"]["l"]),
+             "c": float(c["mid"]["c"]), "sp": float(c["ask"]["c"]) - float(c["bid"]["c"])} for c in rows if c.get("complete")]
+    if len(bars) < 400:
+        log.append(f"{pair}: not enough 15-min history for the 200 EMA ({len(bars)})")
+        return
+    E["bkt"][pair] = bucket
+    prec = int(inf.get("displayPrecision", 5))
+    seen = E.setdefault("seen", {})
+    after = seen.get(pair, bars[-12]["t"])                 # first look: only the last few hours
+    cards, flat = ema200_taps(pair, bars, after, prec)
+    seen[pair] = max(after, cards[-1]["t"] if cards else after, bars[-3]["t"])
+    E["flat"] = E.get("flat", 0) + flat
+    f = lambda x: fmt_price(x, prec)
+    for c in cards:
+        E["taps"] = E.get("taps", 0) + 1
+        d = c["dir"]
+        votes = dict(c["votes"])
+        label = f"{NAMES[pair]} {'BUY' if d == 1 else 'SELL'} (200 EMA tap)"
+        reasons = []
+        bid = float(p["bids"][0]["price"]) if p.get("bids") else None
+        ask = float(p["asks"][0]["price"]) if p.get("asks") else None
+        entry = (ask if d == 1 else bid) or c["entry"]
+        if c["ok"]:
+            end_t = dt.datetime.fromisoformat(c["entry_t"]).replace(tzinfo=dt.timezone.utc) + dt.timedelta(minutes=15)
+            age_min = (now - end_t).total_seconds() / 60
+            if age_min > EMA_FRESH_MIN:
+                reasons.append(f"signal was {age_min:.0f} min old when I saw it (no late entries)")
+            if st.get("paused"):
+                reasons.append(f"paused ({st['paused']})")
+            if streak_status(st, now.timestamp()) == "timeout":
+                reasons.append(f"cooling off after {st['streak']['losses']} losses in a row")
+            if st["day"].get("halted"):
+                reasons.append("daily loss limit hit")
+            if pair in open_pairs:
+                reasons.append("already in a trade on this pair")
+            if len(st["trades"]) >= MAX_OPEN_TRADES:
+                reasons.append(f"{MAX_OPEN_TRADES} trades already open")
+            if not p.get("tradeable", False):
+                reasons.append("market closed")
+            if EMA_ROLLOVER_UTC[0] <= now.hour < EMA_ROLLOVER_UTC[1]:
+                reasons.append("5 PM ET rollover hour (spreads are wide)")
+            cur, way, same = crowded(st["trades"].values(), pair, d)
+            if same >= MAX_SAME_DOLLAR_BETS:
+                reasons.append(f"already {same} trades betting the {CUR_NAMES.get(cur, cur)} goes {'up' if way == 1 else 'down'}")
+            fight = conflict(st["trades"].values(), pair, d)
+            if fight:
+                fc, fp, fw = fight
+                reasons.append(f"would fight the open {NAMES.get(fp, fp)} trade (that one bets the {CUR_NAMES.get(fc, fc)} goes "
+                               f"{'up' if fw == 1 else 'down'}, this one bets it goes {'down' if fw == 1 else 'up'})")
+            ts = now.timestamp()
+            hit = next((e for e in news if e["cur"] in pair_currencies(pair)
+                        and e["t"] - NEWS_BEFORE_MIN * 60 <= ts <= e["t"] + NEWS_AFTER_MIN * 60), None)
+            if hit:
+                reasons.append(f"news: {news_label(hit)}")
+            if (entry - c["stop"]) * d <= 0 or (c["tp"] - entry) * d <= 0:
+                reasons.append(f"price already moved past the stop or the target (now {f(entry)})")
+            if reasons:
+                votes["Risk"] = (False, "valid setup, but " + "; ".join(reasons))
+        ok = c["ok"] and not reasons
+        yes, no = tally(votes)
+        if c["entry"] is not None:
+            detail = f"entry {f(entry)} · stop {f(c['stop'])} · target {f(c['tp'])}" if c["tp"] else f"entry {f(entry)} · stop {f(c['stop'])}"
+        else:
+            detail = f"200 EMA tap at {c['t'][11:16]} UTC"
+        st["last_vote"] = {"label": label, "side": "BUY" if d == 1 else "SELL", "approved": ok, "when": now.timestamp(),
+                           "url": "https://www.oanda.com/", "ask": 0, "edge": 0, "detail": detail,
+                           "votes": {n: [o, why] for n, (o, why) in votes.items()},
+                           "chart": {"closes": [round(x["c"], prec + 1) for x in bars[-60:]], "entry": c["entry"] or bars[-1]["c"],
+                                     "sl": c["stop"] or bars[-1]["c"], "tp": c["tp"] or bars[-1]["c"], "prec": prec, "tf": "M15"}}
+        vote_entry = feed_add(st, "vote", label,
+                              lines=[{"who": n, "vote": o, "say": say(n, o, why, c["t"] + pair)} for n, (o, why) in votes.items()],
+                              verdict=(f"ALL FIVE YES. Placing the trade." if ok else
+                                       f"Valid setup, skipped: {'; '.join(reasons)}." if c["ok"] else
+                                       f"SKIP {yes}–{no}: " + ", ".join(n for n, (o, _) in votes.items() if o is False) + " said no."), ok=ok)
+        vote_text = "\n".join(f"{'✅' if o else '❌' if o is False else '➖'} {n} ({ROLES[n].split(' (')[0]}): {why}" for n, (o, why) in votes.items())
+        st["_changed"] = True
+        if not c["ok"]:
+            if tg and st.get("live_tg"):
+                tg.say(transcript(vote_entry))
+            continue
+        today["setups"] += 1
+        if not ok:
+            today["rejected"] += 1
+            log.append(f"{pair}: valid 200 EMA setup skipped ({'; '.join(reasons)})")
+            if tg:
+                tg.say(f"✋ {label}: a valid setup, but I'm not taking it: {'; '.join(reasons)}.\n"
+                       f"Would have been entry {f(c['entry'])}, stop {f(c['stop'])}, target {f(c['tp'])} ({c['rr']}R).")
+            continue
+        # size and place it
+        sl, tp = c["stop"], c["tp"]
+        conv = usd_per_unit_move(pair, entry)
+        if conv is None:
+            log.append(f"{pair}: can't size (dollar rates missing)"); continue
+        risk_usd = nav * RISK_PCT * (0.5 if streak_status(st, now.timestamp()) != "normal" else 1)
+        units = int(risk_usd / (abs(entry - sl) * conv))
+        cap = int(nav * MAX_LEVERAGE / max(notional_usd(pair, 1, entry) or 1e-9, 1e-9))
+        units = min(units, cap)
+        if units < max(1, float(inf.get("minimumTradeSize", 1))):
+            vote_entry["verdict"] = f"ALL FIVE YES, but the smallest {NAMES[pair]} trade would risk more than {RISK_PCT:.0%} of ${nav:,.0f}."
+            continue
+        try:
+            res = api.market_order(pair, d * units, f(sl), f(tp))
+        except ApiError as e:
+            log.append(f"{pair}: order rejected ({e})")
+            if tg:
+                tg.say(f"⚠️ OANDA rejected the {label} order: {e}")
+            continue
+        fill = res.get("orderFillTransaction") or {}
+        opened = fill.get("tradeOpened") or {}
+        if not opened:
+            reason = (res.get("orderCancelTransaction") or {}).get("reason", "unknown reason")
+            log.append(f"{pair}: order not filled ({reason})")
+            if tg:
+                tg.say(f"⚠️ {label} wasn't filled: {reason}")
+            continue
+        fill_px = float(opened.get("price", fill.get("price", entry)))
+        tid = str(opened["tradeID"])
+        st["trades"][tid] = {"pair": pair, "dir": d, "units": units, "entry": fill_px, "sl": sl, "tp": tp,
+                             "opened": now.isoformat()[:19], "risk": round(risk_usd, 2), "r0": abs(fill_px - sl),
+                             "votes": {n: o for n, (o, _) in votes.items()}, "setup": "200 EMA + zone", "tf": "M15",
+                             "price": fill_px, "upl": 0.0, "ema200": True, "until": now.timestamp() + EMA_MAX_HOLD_H * 3600}
+        open_pairs.add(pair)
+        today["approved"] += 1; today["opened"] += 1
+        vote_entry["verdict"] = (f"ALL FIVE YES. Filled {'BUY' if d == 1 else 'SELL'} {units:,} units at {f(fill_px)}, "
+                                 f"stop {f(sl)}, target {f(tp)}.")
+        log.append(f"{pair}: OPENED {label}, {units} units")
+        if tg:
+            tg.say(f"{'🟢 BUY' if d == 1 else '🔴 SELL'} {NAMES[pair]}: 200 EMA tap in a {'demand' if d == 1 else 'supply'} zone\n\n"
+                   f"Filled: {f(fill_px)}  ·  {units:,} units\n"
+                   f"🛑 Stop: {f(sl)} ({pips(pair, abs(fill_px - sl), inf):.0f} pips, past the 1st confirmation candle)\n"
+                   f"🎯 Target: {f(tp)} ({pips(pair, abs(tp - fill_px), inf):.0f} pips, the previous swing {'high' if d == 1 else 'low'}, {c['rr']}R)\n"
+                   f"Risk: ${risk_usd:,.2f} ({RISK_PCT:.0%} of the bankroll) · closes after 5 days if neither hits\n\n"
+                   f"All five members said YES:\n{vote_text}")
+
+
 def london_breakout(pair, m15, h1a, spread, now_utc):
     """A breakout of today's Asian-session box on a completed 15-min candle, or None."""
     if not LONDON_BREAKOUT or pair not in LB_PAIRS or not m15:
@@ -574,6 +856,16 @@ def crowded(trades, pair, d):
         if n > worst[2]:
             worst = (cur, way, n)
     return worst
+
+
+def conflict(trades, pair, d):
+    """The open trade this one would fight, as (currency, open_pair, open_way), or None.
+    Buying EUR/USD bets the dollar goes DOWN, so buying USD/JPY (dollar UP) would fight it. Selling USD/JPY is fine."""
+    for cur, way in exposure(pair, d).items():
+        for m in trades:
+            if exposure(m["pair"], m["dir"]).get(cur) == -way:
+                return cur, m["pair"], -way
+    return None
 
 
 def usd_direction(pair, d):
@@ -1230,6 +1522,14 @@ def run(log, full=True):
         unreal = sum(float(t.get("unrealizedPL", 0)) for t in mine)
         bal = START_BALANCE + st["record"]["pl"]
         nav = bal + unreal
+    if st.get("main_strategy") != MAIN_STRATEGY:      # new strategy = fresh practice scorecard (the old one is kept)
+        st.setdefault("old_records", []).append({"strategy": st.get("main_strategy") or "council setups",
+                                                 "record": st.get("record"), "until": now.isoformat()[:19]})
+        st.update(main_strategy=MAIN_STRATEGY, record={"wins": 0, "losses": 0, "pl": 0.0}, peak=START_BALANCE or nav,
+                  paused=None, equity=[], day={}, streak={"losses": 0, "half": False, "wins_since": 0, "until": 0}, ema={})
+        st["_strategy_switched"] = True
+        if START_BALANCE:
+            bal = START_BALANCE; nav = bal + unreal
     st["account"] = {"nav": nav, "balance": bal, "unrealized": unreal, "oanda_nav": float(acc["NAV"]),
                      "currency": acc.get("currency", "USD"), "margin_avail": float(acc.get("marginAvailable", 0)),
                      "updated": now.timestamp()}
@@ -1449,7 +1749,7 @@ def run(log, full=True):
                     api.close(tid); log.append(f"{meta['pair']}: {meta.get('setup')} time limit reached, closed")
                 except ApiError as e:
                     log.append(f"{meta['pair']}: couldn't close at time limit ({e})")
-            if mid and not meta.get("case"):
+            if mid and not meta.get("case") and not meta.get("ema200"):     # 200 EMA trades keep their own stop and swing target
                 manage_stop(api, st, tid, meta, mid, info, tg, log)
                 age_h = trade_age_h(meta, now)
                 locked = meta.get("breakeven") and (meta["sl"] - meta["entry"]) * meta["dir"] >= 0
@@ -1637,6 +1937,14 @@ def run(log, full=True):
             elif age > SHADOW_DAYS:
                 st["shadow"].remove(sh)
 
+        # Easter's 200 EMA + supply/demand strategy (the main strategy)
+        if MAIN_STRATEGY == "ema200":
+            try:
+                ema_check(api, st, pair, p, inf, nav, now, news, open_pairs, today, log, tg)
+            except Exception as e:                       # one pair's problem never stops the others
+                log.append(f"{pair}: 200 EMA check failed ({e})")
+        if not OLD_SETUPS:
+            tfs = []
         for tf, a, _candles in tfs:
             if st.get("strategy") in cs.CASES:
                 break                               # a promoted case is trading; the council steps aside
@@ -1674,6 +1982,11 @@ def run(log, full=True):
             cur, way, same = crowded(st["trades"].values(), pair, a["trend"])
             if same >= MAX_SAME_DOLLAR_BETS:
                 reasons.append(f"already {same} trades betting the {CUR_NAMES.get(cur, cur)} goes {'up' if way == 1 else 'down'}")
+            fight = conflict(st["trades"].values(), pair, a["trend"])
+            if fight:
+                fc, fp, fw = fight
+                reasons.append(f"would fight the open {NAMES.get(fp, fp)} trade (that one bets the {CUR_NAMES.get(fc, fc)} goes "
+                               f"{'up' if fw == 1 else 'down'}, this one bets it goes {'down' if fw == 1 else 'up'})")
             ts = now.timestamp()
             hit = next((e for e in news if e["cur"] in pair_currencies(pair)
                         and e["t"] - NEWS_BEFORE_MIN * 60 <= ts <= e["t"] + NEWS_AFTER_MIN * 60), None)
@@ -1791,8 +2104,13 @@ def run(log, full=True):
             else:
                 what = "trending, waiting for a pullback"
             notes.append({"who": NAMES[pr], "vote": None, "say": f"{arrow} ADX {(pp.get('adx') or 0):.0f}, RSI {(pp.get('rsi') or 0):.0f}: {what}"})
-        feed_add(st, "scan", f"Scanned {len(notes)} market{'s' if len(notes) != 1 else ''}: {setups} setup{'s' if setups != 1 else ''} on the latest candle",
-                 lines=notes)
+        if OLD_SETUPS:
+            feed_add(st, "scan", f"Scanned {len(notes)} market{'s' if len(notes) != 1 else ''}: {setups} setup{'s' if setups != 1 else ''} on the latest candle",
+                     lines=notes)
+        else:
+            E_ = st.get("ema", {})
+            feed_add(st, "scan", f"Watching {len(pairs)} pairs for 200 EMA taps · {E_.get('taps', 0)} sloped-EMA taps checked so far "
+                                 f"({E_.get('flat', 0)} more on a flat EMA, skipped)")
 
     # 3b) test trade on request
     if st.get("test_pending"):
@@ -1829,6 +2147,22 @@ def run(log, full=True):
             proving_checks(st, tg)
         except Exception as e:
             log.append(f"proving checks skipped ({e})")
+
+    if st.pop("_strategy_switched", False):
+        feed_add(st, "event", "New strategy", who="Chair", ok=True,
+                 text="Vault FX now trades only Easter's 200 EMA + supply/demand strategy on all 28 major pairs. Fresh practice scorecard.")
+        if tg:
+            tg.say("🔄 Vault FX has a new strategy: your 200 EMA + supply/demand plan, on all 28 major pairs (15-min chart).\n\n"
+                   "The five members now each check one of your rules:\n"
+                   "📈 The Quant: is the 200 EMA sloping? (no flat, sideways markets)\n"
+                   "⏱ Time: did price tap the 200 EMA exactly?\n"
+                   "🤔 Doubt: is the EMA inside a supply (sells) or demand (buys) zone?\n"
+                   "🚀 Momentum: two convincing candles after the tap? Entry at the 2nd close.\n"
+                   "🛡 Risk: is there a previous swing high/low to target, and do the safety limits allow it?\n\n"
+                   "All five YES = trade. Stop past the 1st confirmation candle, target the previous swing. No trailing, "
+                   "closed after 5 days if neither hits. Same safety rules as before (no betting both ways on a currency, "
+                   "max 2 bets on one currency, max 3 trades, daily loss limit, news blackout). Pause cleared, fresh scorecard. "
+                   "Expect about one trade a week.")
 
     # 4) status reply
     if tg and st.pop("_status_requested", False):
@@ -3381,10 +3715,10 @@ details {{ color:var(--muted) }} .fine {{ color:var(--muted); font-size:12px; ma
 <section><h2>Who called it?</h2><p class="fine">{html.escape(learn_line)}</p><div class="tbl"><table><tr><th>Voter</th><th>Called it</th><th>YES vs NO</th><th>Vote weight</th><th>Right / scored</th></tr>{board_rows}</table></div></section>
 <section><h2>Recent closed trades</h2><div class="tbl"><table><tr><th>Pair</th><th>Side</th><th>Units</th><th>Result</th></tr>{closed_rows}</table></div></section>
 <details><summary>Scan log</summary><ul>{''.join(f'<li>{html.escape(l)}</li>' for l in log)}</ul></details>
-<p class="fine">Strategy: the EMA20/EMA50 trend on 1-hour or 15-minute candles sets the direction (15-minute setups must also agree with the 1-hour and 4-hour trends); a fresh crossover or a pullback to the EMA20 creates a setup.
+<p class="fine">Strategy: Easter's 200 EMA + supply/demand plan on all 28 major pairs (15-minute candles). The 200 EMA must be sloping (moved at least {EMA_SLOPE_MIN:g} ATR over {EMA_SLOPE_N} candles); price taps it exactly while it sits in a supply zone (sells) or demand zone (buys); two convincing candles follow and the trade enters at the 2nd close. Stop past the 1st confirmation candle, target the previous swing high/low, no trailing, closed after {EMA_MAX_HOLD_H // 24} days. All five members must say YES. Older text for reference:
 The council (Quant = ADX strength, Risk = spread/exposure/limits, Momentum = MACD, Time = RSI + trading hours, Doubt = 4-hour trend)
 must approve with Risk in favor (4 of 5 at equal weights; voters with better records count more once they have {LEARN_MIN_CALLS} scored calls).
-Pair + setup combos that average below 0R over their last {BENCH_MIN} results are benched until they recover. No new trades around high-impact news. Each trade risks {RISK_PCT:.0%} of the account with a stop at {STOP_ATR:g}× ATR and a target at {TARGET_ATR:g}× ATR;
+Pair + setup combos that average below 0R over their last {BENCH_MIN} results are benched until they recover. No new trades around high-impact news. Never bets both ways on one currency (e.g. long EUR/USD = dollar down, so no USD/JPY buys while it's open; USD/JPY sells are OK), and at most {MAX_SAME_DOLLAR_BETS} trades betting the same way on any currency. Each trade risks {RISK_PCT:.0%} of the account with a stop at {STOP_ATR:g}× ATR and a target at {TARGET_ATR:g}× ATR;
 the stop moves to entry at +{BREAKEVEN_AT_R:g}R and then trails {TRAIL_DIST_R:g}R behind the best price; trades with no locked-in profit close after {MAX_HOLD_HOURS}h (any trade after {MAX_HOLD_PROFIT_HOURS}h). Limits: {MAX_OPEN_TRADES} open trades, {DAILY_LOSS_LIMIT:.0%} daily loss stop, {MAX_DRAWDOWN:.0%} drawdown pause.
 Rejected setups are scored against later prices so "Who called it?" learns from both sides. Forex is leveraged and most retail accounts lose money.
 This is software, not financial advice.</p>
