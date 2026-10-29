@@ -174,39 +174,6 @@ true,
 "feed": [
 {
 "t": "2026-10-21T12:45:00",
-"pair": "CAD_JPY",
-"side": "BUY",
-"ok": false,
-"votes": {
-"The Trend": [
-true,
-"200 EMA is rising 1.4 ATR over 50 candles (needs 1)"
-],
-"The Tap": [
-true,
-"candle low touched the 200 EMA at 112.378"
-],
-"The Zone": [
-false,
-"no fresh demand zone at the EMA: just a line, no confluence"
-],
-"The Candles": [
-false,
-"no two convincing candles in a row (got weak, weak, weak): possible fake-out"
-],
-"The Target": [
-null,
-"didn't get this far"
-]
-},
-"entry": null,
-"stop": null,
-"tp": null,
-"rr": null,
-"entry_t": null
-},
-{
-"t": "2026-10-21T12:45:00",
 "pair": "CAD_CHF",
 "side": "BUY",
 "ok": false,
@@ -8421,37 +8388,70 @@ true,
 "tp": 0.5607,
 "rr": 2.33,
 "entry_t": "2026-10-29T18:30:00"
+},
+{
+"t": "2026-10-29T19:15:00",
+"pair": "NZD_JPY",
+"side": "SELL",
+"ok": false,
+"votes": {
+"The Trend": [
+true,
+"200 EMA is falling 1.6 ATR over 50 candles (needs 1)"
+],
+"The Tap": [
+true,
+"candle high touched the 200 EMA at 88.911"
+],
+"The Zone": [
+false,
+"no fresh supply zone at the EMA: just a line, no confluence"
+],
+"The Candles": [
+false,
+"no two convincing candles in a row (got weak, weak, weak): possible fake-out"
+],
+"The Target": [
+null,
+"didn't get this far"
+]
+},
+"entry": null,
+"stop": null,
+"tp": null,
+"rr": null,
+"entry_t": null
 }
 ],
 "seen": {
-"EUR_USD": "2026-10-29T19:00:00",
-"GBP_USD": "2026-10-29T19:00:00",
-"AUD_USD": "2026-10-29T19:00:00",
-"NZD_USD": "2026-10-29T19:00:00",
-"USD_JPY": "2026-10-29T19:00:00",
-"USD_CHF": "2026-10-29T19:00:00",
-"USD_CAD": "2026-10-29T19:00:00",
-"EUR_JPY": "2026-10-29T19:00:00",
-"GBP_JPY": "2026-10-29T19:00:00",
-"AUD_JPY": "2026-10-29T19:00:00",
-"NZD_JPY": "2026-10-29T19:00:00",
-"CAD_JPY": "2026-10-29T19:00:00",
-"CHF_JPY": "2026-10-29T19:00:00",
-"EUR_GBP": "2026-10-29T19:00:00",
-"EUR_AUD": "2026-10-29T19:00:00",
-"EUR_NZD": "2026-10-29T19:00:00",
-"EUR_CAD": "2026-10-29T19:00:00",
-"EUR_CHF": "2026-10-29T19:00:00",
-"GBP_AUD": "2026-10-29T19:00:00",
-"GBP_NZD": "2026-10-29T19:00:00",
-"GBP_CAD": "2026-10-29T19:00:00",
-"GBP_CHF": "2026-10-29T19:00:00",
-"AUD_NZD": "2026-10-29T19:00:00",
-"AUD_CAD": "2026-10-29T19:00:00",
-"AUD_CHF": "2026-10-29T19:00:00",
-"NZD_CAD": "2026-10-29T19:00:00",
-"NZD_CHF": "2026-10-29T19:00:00",
-"CAD_CHF": "2026-10-29T19:00:00"
+"EUR_USD": "2026-10-29T19:15:00",
+"GBP_USD": "2026-10-29T19:15:00",
+"AUD_USD": "2026-10-29T19:15:00",
+"NZD_USD": "2026-10-29T19:15:00",
+"USD_JPY": "2026-10-29T19:15:00",
+"USD_CHF": "2026-10-29T19:15:00",
+"USD_CAD": "2026-10-29T19:15:00",
+"EUR_JPY": "2026-10-29T19:15:00",
+"GBP_JPY": "2026-10-29T19:15:00",
+"AUD_JPY": "2026-10-29T19:15:00",
+"NZD_JPY": "2026-10-29T19:15:00",
+"CAD_JPY": "2026-10-29T19:15:00",
+"CHF_JPY": "2026-10-29T19:15:00",
+"EUR_GBP": "2026-10-29T19:15:00",
+"EUR_AUD": "2026-10-29T19:15:00",
+"EUR_NZD": "2026-10-29T19:15:00",
+"EUR_CAD": "2026-10-29T19:15:00",
+"EUR_CHF": "2026-10-29T19:15:00",
+"GBP_AUD": "2026-10-29T19:15:00",
+"GBP_NZD": "2026-10-29T19:15:00",
+"GBP_CAD": "2026-10-29T19:15:00",
+"GBP_CHF": "2026-10-29T19:15:00",
+"AUD_NZD": "2026-10-29T19:15:00",
+"AUD_CAD": "2026-10-29T19:15:00",
+"AUD_CHF": "2026-10-29T19:15:00",
+"NZD_CAD": "2026-10-29T19:15:00",
+"NZD_CHF": "2026-10-29T19:15:00",
+"CAD_CHF": "2026-10-29T19:15:00"
 },
 "equity": [
 [
@@ -8473,7 +8473,7 @@ true,
 ],
 "started": 1792121126.3942502,
 "flat": 503,
-"taps": 353,
-"last_run": 1793303125.8415952,
-"bucket": 1992559
+"taps": 354,
+"last_run": 1793304048.1968143,
+"bucket": 1992560
 }
