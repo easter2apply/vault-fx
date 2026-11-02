@@ -6,7 +6,7 @@
   "nav": 500.0,
   "oanda_nav": 99979.035,
   "unrealized": 0,
-  "updated": 1793635223.070538
+  "updated": 1793635512.957215
  },
  "bot_username": "EVaultFX_bot",
  "chat_id": "7590441188",
@@ -7210,7 +7210,7 @@
    "EUR_AUD": 1992927,
    "EUR_CAD": 1992928,
    "EUR_CHF": 1992928,
-   "EUR_GBP": 1992927,
+   "EUR_GBP": 1992928,
    "EUR_JPY": 1992927,
    "EUR_NZD": 1992927,
    "EUR_USD": 1992927,
@@ -7242,7 +7242,7 @@
    "EUR_AUD": "2026-11-02T15:00:00",
    "EUR_CAD": "2026-11-02T15:15:00",
    "EUR_CHF": "2026-11-02T15:15:00",
-   "EUR_GBP": "2026-11-02T15:00:00",
+   "EUR_GBP": "2026-11-02T15:15:00",
    "EUR_JPY": "2026-11-02T15:00:00",
    "EUR_NZD": "2026-11-02T15:00:00",
    "EUR_USD": "2026-11-02T15:00:00",
@@ -7442,13 +7442,13 @@
   [
    1793634619,
    500.0
+  ],
+  [
+   1793635513,
+   500.0
   ]
  ],
  "errors": [
-  {
-   "t": 1793610127.7481723,
-   "text": "USD_CHF: 200 EMA check failed (401: {\"errorMessage\":\"Insufficient authorization to perform request.\"})"
-  },
   {
    "t": 1793611013.9841094,
    "text": "NZD_CAD: 200 EMA check failed (504: <!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"utf-8\"/>\n    <title>Internal Server Error</title>\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\n    <link rel=\"preload\" as=\"style\" href=\"https://use.typekit.net/bhw2bat.css\"\n          onl"
@@ -7524,6 +7524,10 @@
   {
    "t": 1793635358.3748977,
    "text": "USD_JPY: 200 EMA check failed (504: <!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"utf-8\"/>\n    <title>Internal Server Error</title>\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\n    <link rel=\"preload\" as=\"style\" href=\"https://use.typekit.net/bhw2bat.css\"\n          onl"
+  },
+  {
+   "t": 1793635651.1872673,
+   "text": "GBP_USD: 200 EMA check failed (504: <!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"utf-8\"/>\n    <title>Internal Server Error</title>\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\n    <link rel=\"preload\" as=\"style\" href=\"https://use.typekit.net/bhw2bat.css\"\n          onl"
   }
  ],
  "feed": [
@@ -9812,7 +9816,7 @@
    "kind": "scan",
    "lines": [],
    "ok": null,
-   "t": 1793635358.3579812,
+   "t": 1793635651.1701043,
    "text": null,
    "title": "Watching 28 pairs for 200 EMA taps \u00b7 23 sloped-EMA taps checked so far (26 more on a flat EMA, skipped)",
    "verdict": null,
@@ -12459,8 +12463,8 @@
  },
  "last_daily": "2026-11-01",
  "last_deploy": 1793635358.3945878,
- "last_full_run": 1793635223.070538,
- "last_run": 1793635223.070538,
+ "last_full_run": 1793635512.957215,
+ "last_run": 1793635512.957215,
  "last_vote": {
   "approved": false,
   "ask": 0,
@@ -16803,7 +16807,7 @@
    },
    "rsi": 44.320819873471564,
    "setup": null,
-   "spread_pips": 3.4000000000000696,
+   "spread_pips": 3.20000000000098,
    "tradeable": true,
    "trend": -1
   },
@@ -16982,27 +16986,24 @@
    "trend": -1
   },
   "EUR_GBP": {
-   "adx": 23.06191579441739,
-   "atr_pips": 5.821981471058323,
-   "bar": "2026-11-02T14:00:00",
-   "chg": 0.25565317586057484,
-   "close": 0.83529,
+   "adx": 21.707532453183696,
+   "atr_pips": 6.098982794498712,
+   "bar": "2026-11-02T15:00:00",
+   "chg": 0.20891364902507864,
+   "close": 0.83462,
    "h4_trend": -1,
    "prec": 5,
    "ready": {
     "dir": -1,
     "in_trade": false,
     "of": 6,
-    "passed": 4,
+    "passed": 6,
     "session": true,
     "tf": "H1",
-    "waiting": [
-     "a pullback to the trend line or a fresh crossover",
-     "spread is 26% of ATR"
-    ]
+    "waiting": []
    },
-   "rsi": 55.178758870505455,
-   "setup": null,
+   "rsi": 47.63379888384537,
+   "setup": "pullback",
    "spread_pips": 1.4999999999998348,
    "tradeable": true,
    "trend": -1
@@ -17178,7 +17179,7 @@
    },
    "rsi": 61.460903001633596,
    "setup": null,
-   "spread_pips": 3.3999999999991815,
+   "spread_pips": 3.8000000000010914,
    "tradeable": true,
    "trend": 1
   },
@@ -17209,11 +17210,11 @@
    "trend": 1
   },
   "GBP_USD": {
-   "adx": 21.812709731492248,
-   "atr_pips": 15.694431606272014,
-   "bar": "2026-11-02T14:00:00",
-   "chg": 0.30937079659244,
-   "close": 1.34234,
+   "adx": 22.12016840791398,
+   "atr_pips": 15.54482934914825,
+   "bar": "2026-11-02T15:00:00",
+   "chg": 0.15677725684593952,
+   "close": 1.34158,
    "h4_trend": 1,
    "prec": 5,
    "ready": {
@@ -17227,9 +17228,9 @@
      "a pullback to the trend line or a fresh crossover"
     ]
    },
-   "rsi": 59.157797695300964,
+   "rsi": 55.506699598991304,
    "setup": null,
-   "spread_pips": 1.8999999999991246,
+   "spread_pips": 1.80000000000069,
    "tradeable": true,
    "trend": 1
   },
@@ -17380,7 +17381,7 @@
    },
    "rsi": 38.17299323697291,
    "setup": null,
-   "spread_pips": 1.5999999999993797,
+   "spread_pips": 1.7000000000000348,
    "tradeable": true,
    "trend": -1
   },
@@ -19302,7 +19303,7 @@
      "entry": 0.918,
      "hs": 0.00011499999999997623,
      "last_ts": 1793635200,
-     "now_r": 0.08,
+     "now_r": -0.15,
      "risk": 0.0010200000000000209,
      "stop": 0.9190200000000001,
      "t": "2026-11-02T14:45:00",
@@ -19317,8 +19318,8 @@
      "dir": -1,
      "entry": 0.83542,
      "hs": 7.999999999996898e-05,
-     "last_ts": 1793634300,
-     "now_r": 1.41,
+     "last_ts": 1793635200,
+     "now_r": 1.39,
      "risk": 0.0005500000000000504,
      "stop": 0.8359700000000001,
      "t": "2026-11-02T14:30:00",
@@ -19708,7 +19709,7 @@
   "EUR_AUD": "2026-11-02T15:30:00",
   "EUR_CAD": "2026-11-02T15:45:00",
   "EUR_CHF": "2026-11-02T15:45:00",
-  "EUR_GBP": "2026-11-02T15:30:00",
+  "EUR_GBP": "2026-11-02T15:45:00",
   "EUR_JPY": "2026-11-02T15:30:00",
   "EUR_NZD": "2026-11-02T15:30:00",
   "EUR_USD": "2026-11-02T15:30:00",
@@ -19717,7 +19718,7 @@
   "GBP_CHF": "2026-11-02T15:30:00",
   "GBP_JPY": "2026-11-02T15:45:00",
   "GBP_NZD": "2026-11-02T15:30:00",
-  "GBP_USD": "2026-11-02T15:30:00",
+  "GBP_USD": "2026-11-02T15:45:00",
   "NZD_CAD": "2026-11-02T15:30:00",
   "NZD_CHF": "2026-11-02T15:30:00",
   "NZD_JPY": "2026-11-02T15:45:00",
@@ -20132,8 +20133,8 @@
    "s": "EUR/USD"
   },
   {
-   "c": 0.31,
-   "p": "1.34234",
+   "c": 0.16,
+   "p": "1.34158",
    "s": "GBP/USD"
   },
   {
@@ -20192,8 +20193,8 @@
    "s": "CHF/JPY"
   },
   {
-   "c": 0.26,
-   "p": "0.83529",
+   "c": 0.21,
+   "p": "0.83462",
    "s": "EUR/GBP"
   },
   {
