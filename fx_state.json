@@ -6,7 +6,7 @@
   "nav": 500.0,
   "oanda_nav": 99979.035,
   "unrealized": 0,
-  "updated": 1793609114.271329
+  "updated": 1793609419.118473
  },
  "bot_username": "EVaultFX_bot",
  "chat_id": "7590441188",
@@ -7203,7 +7203,7 @@
    "AUD_CHF": 1992899,
    "AUD_JPY": 1992899,
    "AUD_NZD": 1992899,
-   "AUD_USD": 1992898,
+   "AUD_USD": 1992899,
    "CAD_CHF": 1992899,
    "CAD_JPY": 1992899,
    "CHF_JPY": 1992899,
@@ -7235,7 +7235,7 @@
    "AUD_CHF": "2026-11-02T08:00:00",
    "AUD_JPY": "2026-11-02T08:00:00",
    "AUD_NZD": "2026-11-02T08:00:00",
-   "AUD_USD": "2026-11-02T07:45:00",
+   "AUD_USD": "2026-11-02T08:00:00",
    "CAD_CHF": "2026-11-02T08:00:00",
    "CAD_JPY": "2026-11-02T08:00:00",
    "CHF_JPY": "2026-11-02T08:00:00",
@@ -7325,6 +7325,10 @@
   ],
   [
    1793608512,
+   500.0
+  ],
+  [
+   1793609419,
    500.0
   ]
  ],
@@ -10061,7 +10065,7 @@
    "kind": "scan",
    "lines": [],
    "ok": null,
-   "t": 1793609211.7411866,
+   "t": 1793609454.7857358,
    "text": null,
    "title": "Watching 28 pairs for 200 EMA taps \u00b7 12 sloped-EMA taps checked so far (12 more on a flat EMA, skipped)",
    "verdict": null,
@@ -12708,8 +12712,8 @@
  },
  "last_daily": "2026-11-01",
  "last_deploy": 1793609212.7172167,
- "last_full_run": 1793609114.271329,
- "last_run": 1793609114.271329,
+ "last_full_run": 1793609419.118473,
+ "last_run": 1793609419.118473,
  "last_vote": {
   "approved": false,
   "ask": 0,
@@ -12979,7 +12983,6 @@
     -1.0,
     -1.0,
     -1.0,
-    -1.0,
     1.5,
     0.0,
     1.5,
@@ -13004,7 +13007,8 @@
     -1.0,
     -1.0,
     0.0,
-    1.5
+    1.5,
+    0.0
    ],
    "AUD_USD:pullback": [
     -1.0,
@@ -13039,8 +13043,6 @@
     0.0
    ],
    "AUD_USD:pullback 15m": [
-    1.5,
-    1.5,
     -1.0,
     -1.0,
     1.5,
@@ -13068,7 +13070,9 @@
     0.0,
     1.5,
     1.5,
-    1.5
+    1.5,
+    0.0,
+    0.0
    ],
    "EUR_JPY:crossover": [
     -1.0,
@@ -14018,27 +14022,6 @@
    }
   ],
   "outcomes": [
-   {
-    "approved": false,
-    "pair": "USD_CHF",
-    "r": -1.0,
-    "setup": "pullback",
-    "t": 1793286327.334652
-   },
-   {
-    "approved": false,
-    "pair": "USD_CHF",
-    "r": -1.0,
-    "setup": "pullback",
-    "t": 1793286327.334683
-   },
-   {
-    "approved": false,
-    "pair": "EUR_USD",
-    "r": 0.0,
-    "setup": "pullback",
-    "t": 1793286328.3587599
-   },
    {
     "approved": false,
     "pair": "EUR_USD",
@@ -16817,6 +16800,27 @@
     "r": -1.0,
     "setup": "pullback 15m",
     "t": 1793607330.0589814
+   },
+   {
+    "approved": false,
+    "pair": "AUD_USD",
+    "r": 0.0,
+    "setup": "crossover 15m",
+    "t": 1793609425.7573948
+   },
+   {
+    "approved": false,
+    "pair": "AUD_USD",
+    "r": 0.0,
+    "setup": "pullback 15m",
+    "t": 1793609425.7574334
+   },
+   {
+    "approved": false,
+    "pair": "AUD_USD",
+    "r": 0.0,
+    "setup": "pullback 15m",
+    "t": 1793609425.7574909
    }
   ],
   "proven": {
@@ -16997,7 +17001,7 @@
    },
    "rsi": 39.743042721660956,
    "setup": null,
-   "spread_pips": 1.80000000000069,
+   "spread_pips": 1.7999999999995797,
    "tradeable": true,
    "trend": -1
   },
@@ -17020,7 +17024,7 @@
    },
    "rsi": 47.77530765080193,
    "setup": "pullback",
-   "spread_pips": 2.1000000000000796,
+   "spread_pips": 2.200000000000557,
    "tradeable": true,
    "trend": -1
   },
@@ -17036,16 +17040,14 @@
     "dir": -1,
     "in_trade": false,
     "of": 6,
-    "passed": 5,
+    "passed": 6,
     "session": true,
     "tf": "M15",
-    "waiting": [
-     "spread is 54% of ATR"
-    ]
+    "waiting": []
    },
    "rsi": 48.438027857293726,
    "setup": null,
-   "spread_pips": 3.7999999999982492,
+   "spread_pips": 3.4000000000000696,
    "tradeable": true,
    "trend": 1
   },
@@ -17070,7 +17072,7 @@
    },
    "rsi": 42.53439564142791,
    "setup": null,
-   "spread_pips": 1.300000000000745,
+   "spread_pips": 1.40000000000029,
    "tradeable": true,
    "trend": -1
   },
@@ -17122,7 +17124,7 @@
    },
    "rsi": 53.48987659064427,
    "setup": "pullback",
-   "spread_pips": 3.6000000000001364,
+   "spread_pips": 3.699999999999193,
    "tradeable": true,
    "trend": 1
   },
@@ -17147,7 +17149,7 @@
    },
    "rsi": 64.30349805021265,
    "setup": null,
-   "spread_pips": 4.099999999999682,
+   "spread_pips": 3.999999999999204,
    "tradeable": true,
    "trend": 1
   },
@@ -17172,7 +17174,7 @@
    },
    "rsi": 65.98992044228186,
    "setup": null,
-   "spread_pips": 3.5000000000007248,
+   "spread_pips": 3.5999999999991594,
    "tradeable": true,
    "trend": 1
   },
@@ -17195,7 +17197,7 @@
    },
    "rsi": 66.5540398132012,
    "setup": "crossover",
-   "spread_pips": 3.300000000001635,
+   "spread_pips": 3.5000000000007248,
    "tradeable": true,
    "trend": 1
   },
@@ -17220,7 +17222,7 @@
    },
    "rsi": 54.36091251340378,
    "setup": null,
-   "spread_pips": 2.1999999999999797,
+   "spread_pips": 2.0999999999993246,
    "tradeable": true,
    "trend": -1
   },
@@ -17271,7 +17273,7 @@
    },
    "rsi": 66.20170441416965,
    "setup": null,
-   "spread_pips": 2.400000000000091,
+   "spread_pips": 2.2999999999996135,
    "tradeable": true,
    "trend": 1
   },
@@ -17292,12 +17294,12 @@
     "tf": "H1",
     "waiting": [
      "a pullback to the trend line or a fresh crossover",
-     "spread is 28% of ATR"
+     "spread is 27% of ATR"
     ]
    },
    "rsi": 68.71871886049078,
    "setup": null,
-   "spread_pips": 6.999999999999229,
+   "spread_pips": 6.799999999997919,
    "tradeable": true,
    "trend": 1
   },
@@ -17323,7 +17325,7 @@
    },
    "rsi": 64.08363666031784,
    "setup": null,
-   "spread_pips": 1.500000000000945,
+   "spread_pips": 1.4999999999987246,
    "tradeable": true,
    "trend": 1
   },
@@ -17348,7 +17350,7 @@
    },
    "rsi": 65.93723456334268,
    "setup": null,
-   "spread_pips": 5.20000000000076,
+   "spread_pips": 4.900000000001015,
    "tradeable": true,
    "trend": 1
   },
@@ -17374,7 +17376,7 @@
    },
    "rsi": 68.14888147651897,
    "setup": null,
-   "spread_pips": 4.900000000001015,
+   "spread_pips": 4.999999999999449,
    "tradeable": true,
    "trend": 1
   },
@@ -17425,7 +17427,7 @@
    },
    "rsi": 66.53044184432676,
    "setup": null,
-   "spread_pips": 3.6999999999977717,
+   "spread_pips": 3.700000000000614,
    "tradeable": true,
    "trend": 1
   },
@@ -17451,7 +17453,7 @@
    },
    "rsi": 69.261368557015,
    "setup": null,
-   "spread_pips": 9.599999999996278,
+   "spread_pips": 9.80000000000203,
    "tradeable": true,
    "trend": 1
   },
@@ -17477,7 +17479,7 @@
    },
    "rsi": 63.42144305646501,
    "setup": null,
-   "spread_pips": 1.80000000000069,
+   "spread_pips": 1.8999999999991246,
    "tradeable": true,
    "trend": 1
   },
@@ -17523,12 +17525,12 @@
     "tf": "H1",
     "waiting": [
      "a pullback to the trend line or a fresh crossover",
-     "spread is 52% of ATR"
+     "spread is 51% of ATR"
     ]
    },
    "rsi": 36.74807942887226,
    "setup": null,
-   "spread_pips": 3.5999999999997145,
+   "spread_pips": 3.5000000000001696,
    "tradeable": true,
    "trend": -1
   },
@@ -17575,12 +17577,12 @@
     "tf": "H1",
     "waiting": [
      "a pullback to the trend line or a fresh crossover",
-     "spread is 31% of ATR"
+     "spread is 30% of ATR"
     ]
    },
    "rsi": 44.79051697067655,
    "setup": null,
-   "spread_pips": 2.4999999999997247,
+   "spread_pips": 2.4000000000001798,
    "tradeable": true,
    "trend": -1
   },
@@ -17605,7 +17607,7 @@
    },
    "rsi": 51.73004618202618,
    "setup": null,
-   "spread_pips": 1.80000000000069,
+   "spread_pips": 1.8999999999991246,
    "tradeable": true,
    "trend": -1
   },
@@ -17630,7 +17632,7 @@
    },
    "rsi": 41.36812982699001,
    "setup": null,
-   "spread_pips": 1.5999999999993797,
+   "spread_pips": 1.4999999999998348,
    "tradeable": true,
    "trend": -1
   },
@@ -17695,8 +17697,8 @@
      "dir": 1,
      "entry": 0.70565,
      "hs": 0.00017000000000000348,
-     "last_ts": 1793608200,
-     "now_r": -0.35,
+     "last_ts": 1793609100,
+     "now_r": -0.32,
      "risk": 0.00880599999999998,
      "stop": 0.6978340000000001,
      "t": "2026-10-28T20:45:00",
@@ -18660,7 +18662,7 @@
      "entry": 110.717,
      "hs": 0.012500000000002842,
      "last_ts": 1793609100,
-     "now_r": 0.63,
+     "now_r": 0.67,
      "risk": 0.10178571428571612,
      "stop": 110.61521428571429,
      "t": "2026-11-02T05:15:00",
@@ -19606,7 +19608,7 @@
   "AUD_CHF": "2026-11-02T08:30:00",
   "AUD_JPY": "2026-11-02T08:30:00",
   "AUD_NZD": "2026-11-02T08:30:00",
-  "AUD_USD": "2026-11-02T08:15:00",
+  "AUD_USD": "2026-11-02T08:30:00",
   "CAD_CHF": "2026-11-02T08:30:00",
   "CAD_JPY": "2026-11-02T08:30:00",
   "CHF_JPY": "2026-11-02T08:30:00",
@@ -19764,7 +19766,7 @@
    "total": 108
   }
  },
- "scratches": 337,
+ "scratches": 340,
  "shadow": [
   {
    "bar": "2026-10-29T18:00:00",
@@ -20260,23 +20262,6 @@
    }
   },
   {
-   "bar": "2026-11-01T22:45:00",
-   "dir": -1,
-   "entry": 0.70253,
-   "pair": "AUD_USD",
-   "setup": "crossover 15m",
-   "sl": 0.7034647554925608,
-   "tf": "M15",
-   "tp": 0.7011278667611588,
-   "votes": {
-    "Doubt": true,
-    "Momentum": true,
-    "Risk": false,
-    "The Quant": false,
-    "Time": true
-   }
-  },
-  {
    "bar": "2026-11-01T23:00:00",
    "dir": 1,
    "entry": 110.843,
@@ -20285,23 +20270,6 @@
    "sl": 110.61289762228202,
    "tf": "M15",
    "tp": 111.18815356657697,
-   "votes": {
-    "Doubt": true,
-    "Momentum": true,
-    "Risk": false,
-    "The Quant": false,
-    "Time": true
-   }
-  },
-  {
-   "bar": "2026-11-01T23:15:00",
-   "dir": -1,
-   "entry": 0.70278,
-   "pair": "AUD_USD",
-   "setup": "pullback 15m",
-   "sl": 0.7037961922359516,
-   "tf": "M15",
-   "tp": 0.7012557116460726,
    "votes": {
     "Doubt": true,
     "Momentum": true,
@@ -20393,23 +20361,6 @@
     "Risk": false,
     "The Quant": false,
     "Time": false
-   }
-  },
-  {
-   "bar": "2026-11-02T02:15:00",
-   "dir": -1,
-   "entry": 0.70259,
-   "pair": "AUD_USD",
-   "setup": "pullback 15m",
-   "sl": 0.7034263570330886,
-   "tf": "M15",
-   "tp": 0.7013354644503671,
-   "votes": {
-    "Doubt": true,
-    "Momentum": true,
-    "Risk": false,
-    "The Quant": false,
-    "Time": true
    }
   },
   {
