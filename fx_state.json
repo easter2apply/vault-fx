@@ -6,7 +6,7 @@
   "nav": 490.61,
   "oanda_nav": 99969.6446,
   "unrealized": 0,
-  "updated": 1794597614.777082
+  "updated": 1794597914.540323
  },
  "bot_username": "EVaultFX_bot",
  "chat_id": "7590441188",
@@ -7228,10 +7228,10 @@
  "doubt_seen": 1794163644.551744,
  "ema": {
   "bkt": {
-   "AUD_CAD": 1993994,
+   "AUD_CAD": 1993997,
    "AUD_CHF": 1993997,
    "AUD_JPY": 1993997,
-   "AUD_NZD": 1993996,
+   "AUD_NZD": 1993997,
    "AUD_USD": 1993997,
    "CAD_CHF": 1993997,
    "CAD_JPY": 1993997,
@@ -7251,7 +7251,7 @@
    "GBP_USD": 1993997,
    "NZD_CAD": 1993997,
    "NZD_CHF": 1993996,
-   "NZD_JPY": 1993996,
+   "NZD_JPY": 1993997,
    "NZD_USD": 1993997,
    "USD_CAD": 1993997,
    "USD_CHF": 1993997,
@@ -7263,10 +7263,10 @@
   ],
   "flat": 458,
   "seen": {
-   "AUD_CAD": "2026-11-13T17:45:00",
+   "AUD_CAD": "2026-11-13T18:30:00",
    "AUD_CHF": "2026-11-13T18:30:00",
    "AUD_JPY": "2026-11-13T18:30:00",
-   "AUD_NZD": "2026-11-13T18:15:00",
+   "AUD_NZD": "2026-11-13T18:30:00",
    "AUD_USD": "2026-11-13T18:30:00",
    "CAD_CHF": "2026-11-13T18:30:00",
    "CAD_JPY": "2026-11-13T18:30:00",
@@ -7286,7 +7286,7 @@
    "GBP_USD": "2026-11-13T18:30:00",
    "NZD_CAD": "2026-11-13T18:30:00",
    "NZD_CHF": "2026-11-13T18:15:00",
-   "NZD_JPY": "2026-11-13T18:15:00",
+   "NZD_JPY": "2026-11-13T18:30:00",
    "NZD_USD": "2026-11-13T18:30:00",
    "USD_CAD": "2026-11-13T18:30:00",
    "USD_CHF": "2026-11-13T18:30:00",
@@ -11630,10 +11630,6 @@
  ],
  "errors": [
   {
-   "t": 1794574915.8279536,
-   "text": "EUR_NZD: 200 EMA check failed (504: <!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"utf-8\"/>\n    <title>Internal Server Error</title>\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\n    <link rel=\"preload\" as=\"style\" href=\"https://use.typekit.net/bhw2bat.css\"\n          onl"
-  },
-  {
    "t": 1794575186.356459,
    "text": "EUR_CAD: 200 EMA check failed (504: <!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"utf-8\"/>\n    <title>Internal Server Error</title>\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\n    <link rel=\"preload\" as=\"style\" href=\"https://use.typekit.net/bhw2bat.css\"\n          onl"
   },
@@ -11708,6 +11704,10 @@
   {
    "t": 1794597391.264499,
    "text": "EUR_JPY: 200 EMA check failed (401: {\"errorMessage\":\"Insufficient authorization to perform request.\"})"
+  },
+  {
+   "t": 1794597970.4781022,
+   "text": "NZD_CHF: 200 EMA check failed (504: <!DOCTYPE html>\n<html>\n<head>\n    <meta charset=\"utf-8\"/>\n    <title>Internal Server Error</title>\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\n    <link rel=\"preload\" as=\"style\" href=\"https://use.typekit.net/bhw2bat.css\"\n          onl"
   }
  ],
  "feed": [
@@ -13727,7 +13727,7 @@
    "kind": "scan",
    "lines": [],
    "ok": null,
-   "t": 1794597696.5316641,
+   "t": 1794597970.4523432,
    "text": null,
    "title": "Watching 28 pairs for 200 EMA taps \u00b7 327 sloped-EMA taps checked so far (458 more on a flat EMA, skipped)",
    "verdict": null,
@@ -16374,8 +16374,8 @@
  },
  "last_daily": "2026-11-12",
  "last_deploy": 1794597696.5671284,
- "last_full_run": 1794597614.777082,
- "last_run": 1794597614.777082,
+ "last_full_run": 1794597914.540323,
+ "last_run": 1794597914.540323,
  "last_vote": {
   "approved": false,
   "ask": 0,
@@ -20556,27 +20556,28 @@
  "on_break": null,
  "pairs": {
   "AUD_CAD": {
-   "adx": 50.30580608871292,
-   "atr_pips": 11.871742400969046,
-   "bar": "2026-11-13T17:00:00",
-   "chg": -0.3700115435356182,
-   "close": 0.96665,
+   "adx": 49.808280422215475,
+   "atr_pips": 11.74518937252775,
+   "bar": "2026-11-13T18:00:00",
+   "chg": -0.28045863235173385,
+   "close": 0.96712,
    "h4_trend": -1,
    "prec": 5,
    "ready": {
     "dir": -1,
     "in_trade": false,
     "of": 6,
-    "passed": 5,
-    "session": true,
+    "passed": 4,
+    "session": false,
     "tf": "H1",
     "waiting": [
-     "a pullback to the trend line or a fresh crossover"
+     "a pullback to the trend line or a fresh crossover",
+     "RSI 38, outside trading hours"
     ]
    },
-   "rsi": 34.665258135779,
+   "rsi": 38.26949858249883,
    "setup": null,
-   "spread_pips": 2.4000000000001798,
+   "spread_pips": 2.5999999999992696,
    "tradeable": true,
    "trend": -1
   },
@@ -20654,7 +20655,7 @@
    },
    "rsi": 46.75081696161339,
    "setup": "pullback",
-   "spread_pips": 3.4999999999985043,
+   "spread_pips": 3.5999999999991594,
    "tradeable": true,
    "trend": -1
   },
@@ -20680,7 +20681,7 @@
    },
    "rsi": 33.815074220800554,
    "setup": null,
-   "spread_pips": 1.0999999999994348,
+   "spread_pips": 1.2000000000000899,
    "tradeable": true,
    "trend": -1
   },
@@ -20706,7 +20707,7 @@
    },
    "rsi": 73.64601536453922,
    "setup": null,
-   "spread_pips": 2.2999999999995246,
+   "spread_pips": 2.300000000000635,
    "tradeable": true,
    "trend": 1
   },
@@ -20758,7 +20759,7 @@
    },
    "rsi": 21.887356176247465,
    "setup": null,
-   "spread_pips": 3.8999999999987267,
+   "spread_pips": 3.900000000001569,
    "tradeable": true,
    "trend": -1
   },
@@ -20784,7 +20785,7 @@
    },
    "rsi": 52.424120341114914,
    "setup": "pullback",
-   "spread_pips": 3.60000000000138,
+   "spread_pips": 3.4000000000000696,
    "tradeable": true,
    "trend": 1
   },
@@ -20830,12 +20831,12 @@
     "tf": "H1",
     "waiting": [
      "a pullback to the trend line or a fresh crossover",
-     "spread is 27% of ATR"
+     "spread is 28% of ATR"
     ]
    },
    "rsi": 60.12877691662963,
    "setup": null,
-   "spread_pips": 2.0999999999993246,
+   "spread_pips": 2.1999999999999797,
    "tradeable": true,
    "trend": 1
   },
@@ -20851,17 +20852,17 @@
     "dir": -1,
     "in_trade": false,
     "of": 6,
-    "passed": 3,
+    "passed": 4,
     "session": false,
-    "tf": "H1",
+    "tf": "M15",
     "waiting": [
      "a pullback to the trend line or a fresh crossover",
-     "spread is 28% of ATR"
+     "RSI 43, outside trading hours"
     ]
    },
    "rsi": 42.819483543624415,
    "setup": null,
-   "spread_pips": 1.40000000000029,
+   "spread_pips": 1.2999999999996348,
    "tradeable": true,
    "trend": -1
   },
@@ -21012,12 +21013,12 @@
     "tf": "H1",
     "waiting": [
      "a pullback to the trend line or a fresh crossover",
-     "spread is 42% of ATR"
+     "spread is 41% of ATR"
     ]
    },
    "rsi": 70.12359604436023,
    "setup": null,
-   "spread_pips": 4.100000000000215,
+   "spread_pips": 3.9999999999995595,
    "tradeable": true,
    "trend": 1
   },
@@ -21043,7 +21044,7 @@
    },
    "rsi": 29.918685859217774,
    "setup": null,
-   "spread_pips": 3.700000000000614,
+   "spread_pips": 3.7999999999982492,
    "tradeable": true,
    "trend": -1
   },
@@ -21173,7 +21174,7 @@
    },
    "rsi": 30.48427336370608,
    "setup": null,
-   "spread_pips": 3.499999999999659,
+   "spread_pips": 3.50000000000108,
    "tradeable": true,
    "trend": -1
   },
@@ -21194,12 +21195,12 @@
     "tf": "H1",
     "waiting": [
      "a pullback to the trend line or a fresh crossover",
-     "spread is 27% of ATR"
+     "spread is 28% of ATR"
     ]
    },
    "rsi": 34.79908754238552,
    "setup": null,
-   "spread_pips": 2.1999999999999797,
+   "spread_pips": 2.300000000000635,
    "tradeable": true,
    "trend": -1
   },
@@ -21225,7 +21226,7 @@
    },
    "rsi": 57.411062724693075,
    "setup": "pullback",
-   "spread_pips": 1.7000000000000348,
+   "spread_pips": 1.7999999999984695,
    "tradeable": true,
    "trend": 1
   },
@@ -24036,8 +24037,8 @@
      "dir": -1,
      "entry": 0.96669,
      "hs": 0.00011999999999995348,
-     "last_ts": 1794595500,
-     "now_r": -0.42,
+     "last_ts": 1794597300,
+     "now_r": 0.18,
      "risk": 0.0012600000000000389,
      "stop": 0.9679500000000001,
      "t": "2026-11-13T14:15:00",
@@ -24069,7 +24070,7 @@
      "entry": 0.6781,
      "hs": 6.499999999998174e-05,
      "last_ts": 1794597300,
-     "now_r": 0.51,
+     "now_r": 0.61,
      "risk": 0.0012699999999999934,
      "stop": 0.67937,
      "t": "2026-11-13T15:15:00",
@@ -24101,7 +24102,7 @@
      "entry": 1.3222,
      "hs": 9.00000000000345e-05,
      "last_ts": 1794597300,
-     "now_r": 0.67,
+     "now_r": 0.75,
      "risk": 0.0014650000000002716,
      "stop": 1.3236650000000003,
      "t": "2026-11-13T15:30:00",
@@ -24117,7 +24118,7 @@
      "entry": 0.55277,
      "hs": 0.00012499999999998623,
      "last_ts": 1794597300,
-     "now_r": 0.32,
+     "now_r": 0.4,
      "risk": 0.0008199999999999319,
      "stop": 0.5535899999999999,
      "t": "2026-11-13T15:30:00",
@@ -24748,10 +24749,10 @@
   }
  },
  "paper_bar": {
-  "AUD_CAD": "2026-11-13T18:30:00",
+  "AUD_CAD": "2026-11-13T19:00:00",
   "AUD_CHF": "2026-11-13T19:00:00",
   "AUD_JPY": "2026-11-13T19:00:00",
-  "AUD_NZD": "2026-11-13T18:45:00",
+  "AUD_NZD": "2026-11-13T19:00:00",
   "AUD_USD": "2026-11-13T19:00:00",
   "CAD_CHF": "2026-11-13T19:00:00",
   "CAD_JPY": "2026-11-13T19:00:00",
@@ -24770,8 +24771,8 @@
   "GBP_NZD": "2026-11-13T19:00:00",
   "GBP_USD": "2026-11-13T19:00:00",
   "NZD_CAD": "2026-11-13T19:00:00",
-  "NZD_CHF": "2026-11-13T18:45:00",
-  "NZD_JPY": "2026-11-13T18:45:00",
+  "NZD_CHF": "2026-11-13T19:00:00",
+  "NZD_JPY": "2026-11-13T19:00:00",
   "NZD_USD": "2026-11-13T19:00:00",
   "USD_CAD": "2026-11-13T19:00:00",
   "USD_CHF": "2026-11-13T19:00:00",
@@ -25038,8 +25039,8 @@
    "s": "AUD/NZD"
   },
   {
-   "c": -0.37,
-   "p": "0.96665",
+   "c": -0.28,
+   "p": "0.96712",
    "s": "AUD/CAD"
   },
   {
