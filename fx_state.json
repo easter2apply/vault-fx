@@ -6,7 +6,7 @@
   "nav": 490.61,
   "oanda_nav": 99969.6446,
   "unrealized": 0,
-  "updated": 1794834915.525547
+  "updated": 1794835215.661931
  },
  "bot_username": "EVaultFX_bot",
  "chat_id": "7590441188",
@@ -7231,23 +7231,23 @@
    "AUD_CAD": 1994261,
    "AUD_CHF": 1994261,
    "AUD_JPY": 1994261,
-   "AUD_NZD": 1994260,
+   "AUD_NZD": 1994261,
    "AUD_USD": 1994261,
    "CAD_CHF": 1994261,
    "CAD_JPY": 1994261,
    "CHF_JPY": 1994261,
-   "EUR_AUD": 1994260,
-   "EUR_CAD": 1994260,
-   "EUR_CHF": 1994260,
+   "EUR_AUD": 1994261,
+   "EUR_CAD": 1994261,
+   "EUR_CHF": 1994261,
    "EUR_GBP": 1994261,
    "EUR_JPY": 1994261,
-   "EUR_NZD": 1994260,
+   "EUR_NZD": 1994261,
    "EUR_USD": 1994261,
-   "GBP_AUD": 1994260,
-   "GBP_CAD": 1994260,
-   "GBP_CHF": 1994260,
+   "GBP_AUD": 1994261,
+   "GBP_CAD": 1994261,
+   "GBP_CHF": 1994261,
    "GBP_JPY": 1994261,
-   "GBP_NZD": 1994260,
+   "GBP_NZD": 1994261,
    "GBP_USD": 1994261,
    "NZD_CAD": 1994261,
    "NZD_CHF": 1994261,
@@ -7261,28 +7261,28 @@
    "CAD_JPY:2026-11-02T19:45:00",
    "CHF_JPY:2026-11-09T09:00:00"
   ],
-  "flat": 490,
+  "flat": 491,
   "seen": {
    "AUD_CAD": "2026-11-16T12:30:00",
    "AUD_CHF": "2026-11-16T12:30:00",
    "AUD_JPY": "2026-11-16T12:30:00",
-   "AUD_NZD": "2026-11-16T12:15:00",
+   "AUD_NZD": "2026-11-16T12:30:00",
    "AUD_USD": "2026-11-16T12:30:00",
    "CAD_CHF": "2026-11-16T12:30:00",
    "CAD_JPY": "2026-11-16T12:30:00",
    "CHF_JPY": "2026-11-16T12:30:00",
-   "EUR_AUD": "2026-11-16T12:15:00",
-   "EUR_CAD": "2026-11-16T12:15:00",
-   "EUR_CHF": "2026-11-16T12:15:00",
+   "EUR_AUD": "2026-11-16T12:30:00",
+   "EUR_CAD": "2026-11-16T12:30:00",
+   "EUR_CHF": "2026-11-16T12:30:00",
    "EUR_GBP": "2026-11-16T12:30:00",
    "EUR_JPY": "2026-11-16T12:30:00",
-   "EUR_NZD": "2026-11-16T12:15:00",
+   "EUR_NZD": "2026-11-16T12:30:00",
    "EUR_USD": "2026-11-16T12:30:00",
-   "GBP_AUD": "2026-11-16T12:15:00",
-   "GBP_CAD": "2026-11-16T12:15:00",
-   "GBP_CHF": "2026-11-16T12:15:00",
+   "GBP_AUD": "2026-11-16T12:30:00",
+   "GBP_CAD": "2026-11-16T12:30:00",
+   "GBP_CHF": "2026-11-16T12:30:00",
    "GBP_JPY": "2026-11-16T12:30:00",
-   "GBP_NZD": "2026-11-16T12:15:00",
+   "GBP_NZD": "2026-11-16T12:30:00",
    "GBP_USD": "2026-11-16T12:30:00",
    "NZD_CAD": "2026-11-16T12:30:00",
    "NZD_CHF": "2026-11-16T12:30:00",
@@ -7292,7 +7292,7 @@
    "USD_CHF": "2026-11-16T12:30:00",
    "USD_JPY": "2026-11-16T12:30:00"
   },
-  "taps": 338
+  "taps": 339
  },
  "equity": [
   [
@@ -12502,6 +12502,10 @@
   [
    1794834313,
    490.61
+  ],
+  [
+   1794835216,
+   490.61
   ]
  ],
  "errors": [
@@ -12587,52 +12591,6 @@
   }
  ],
  "feed": [
-  {
-   "kind": "scan",
-   "lines": [],
-   "ok": null,
-   "t": 1794409856.097346,
-   "text": null,
-   "title": "Watching 28 pairs for 200 EMA taps \u00b7 296 sloped-EMA taps checked so far (299 more on a flat EMA, skipped)",
-   "verdict": null,
-   "who": null
-  },
-  {
-   "kind": "vote",
-   "lines": [
-    {
-     "say": "The data says go. 200 EMA is falling 1.6 ATR over 50 candles (needs 1).",
-     "vote": true,
-     "who": "The Quant"
-    },
-    {
-     "say": "Clock agrees: Candle high tapped the 200 EMA at 2.38538.",
-     "vote": true,
-     "who": "Time"
-    },
-    {
-     "say": "Too convenient. No fresh supply zone at the EMA: just a line, no confluence.",
-     "vote": false,
-     "who": "Doubt"
-    },
-    {
-     "say": "No juice here. No two convincing candles in a row (got weak, weak, weak): possible fake-out.",
-     "vote": false,
-     "who": "Momentum"
-    },
-    {
-     "say": "Abstaining. didn't get this far.",
-     "vote": null,
-     "who": "Risk"
-    }
-   ],
-   "ok": false,
-   "t": 1794410155.1377852,
-   "text": null,
-   "title": "GBP/NZD SELL (200 EMA tap)",
-   "verdict": "SKIP 2\u20132: Doubt, Momentum said no.",
-   "who": null
-  },
   {
    "kind": "scan",
    "lines": [],
@@ -14476,6 +14434,52 @@
    "t": 1794835018.0205288,
    "text": null,
    "title": "Watching 28 pairs for 200 EMA taps \u00b7 338 sloped-EMA taps checked so far (490 more on a flat EMA, skipped)",
+   "verdict": null,
+   "who": null
+  },
+  {
+   "kind": "vote",
+   "lines": [
+    {
+     "say": "The data says go. 200 EMA is rising 1.4 ATR over 50 candles (needs 1).",
+     "vote": true,
+     "who": "The Quant"
+    },
+    {
+     "say": "Clock agrees: Candle low tapped the 200 EMA at 1.10721.",
+     "vote": true,
+     "who": "Time"
+    },
+    {
+     "say": "Too convenient. No fresh demand zone at the EMA: just a line, no confluence.",
+     "vote": false,
+     "who": "Doubt"
+    },
+    {
+     "say": "No juice here. No two convincing candles in a row (got weak, weak, weak): possible fake-out.",
+     "vote": false,
+     "who": "Momentum"
+    },
+    {
+     "say": "Abstaining. didn't get this far.",
+     "vote": null,
+     "who": "Risk"
+    }
+   ],
+   "ok": false,
+   "t": 1794835278.292091,
+   "text": null,
+   "title": "GBP/CHF BUY (200 EMA tap)",
+   "verdict": "SKIP 2\u20132: Doubt, Momentum said no.",
+   "who": null
+  },
+  {
+   "kind": "scan",
+   "lines": [],
+   "ok": null,
+   "t": 1794835288.5081723,
+   "text": null,
+   "title": "Watching 28 pairs for 200 EMA taps \u00b7 339 sloped-EMA taps checked so far (491 more on a flat EMA, skipped)",
    "verdict": null,
    "who": null
   }
@@ -17119,94 +17123,94 @@
   "USD_JPY:M15": "2026-11-02T04:30:00"
  },
  "last_daily": "2026-11-15",
- "last_deploy": 1794834379.3437462,
- "last_full_run": 1794834915.525547,
- "last_run": 1794834915.525547,
+ "last_deploy": 1794835289.48017,
+ "last_full_run": 1794835215.661931,
+ "last_run": 1794835215.661931,
  "last_vote": {
   "approved": false,
   "ask": 0,
   "chart": {
    "closes": [
-    1.8846,
-    1.8847,
-    1.88486,
-    1.88498,
-    1.88499,
-    1.8846,
-    1.88472,
-    1.8848,
-    1.88472,
-    1.88507,
-    1.88582,
-    1.88548,
-    1.88514,
-    1.88551,
-    1.8867,
-    1.88598,
-    1.88565,
-    1.8858,
-    1.88574,
-    1.88561,
-    1.88555,
-    1.88577,
-    1.88592,
-    1.88584,
-    1.88536,
-    1.88592,
-    1.88575,
-    1.88608,
-    1.88589,
-    1.88612,
-    1.88652,
-    1.88626,
-    1.88572,
-    1.88586,
-    1.88582,
-    1.88579,
-    1.88588,
-    1.88534,
-    1.88524,
-    1.88518,
-    1.88535,
-    1.88568,
-    1.88569,
-    1.88558,
-    1.88565,
-    1.8853,
-    1.88544,
-    1.88518,
-    1.88456,
-    1.8844,
-    1.88528,
-    1.88533,
-    1.88551,
-    1.88522,
-    1.88538,
-    1.88562,
-    1.88668,
-    1.88694,
-    1.88694,
-    1.88564
+    1.10861,
+    1.10784,
+    1.10795,
+    1.10898,
+    1.109,
+    1.1091,
+    1.10902,
+    1.10888,
+    1.10906,
+    1.10884,
+    1.10924,
+    1.10882,
+    1.10839,
+    1.1085,
+    1.10859,
+    1.10886,
+    1.10876,
+    1.10868,
+    1.10868,
+    1.1087,
+    1.10864,
+    1.1085,
+    1.10854,
+    1.10841,
+    1.10858,
+    1.10853,
+    1.1084,
+    1.10824,
+    1.10764,
+    1.10762,
+    1.1076,
+    1.10769,
+    1.10787,
+    1.10795,
+    1.10787,
+    1.10824,
+    1.10826,
+    1.10763,
+    1.10788,
+    1.10826,
+    1.10902,
+    1.10956,
+    1.1092,
+    1.1092,
+    1.10854,
+    1.10847,
+    1.10843,
+    1.10856,
+    1.10871,
+    1.10854,
+    1.10829,
+    1.10826,
+    1.10864,
+    1.1083,
+    1.10881,
+    1.1084,
+    1.10724,
+    1.10755,
+    1.10761,
+    1.10772
    ],
-   "entry": 1.88564,
+   "entry": 1.10772,
    "prec": 5,
-   "sl": 1.88564,
+   "sl": 1.10772,
    "tf": "M15",
-   "tp": 1.88564
+   "tp": 1.10772
   },
-  "detail": "200 EMA tap at 08:45 UTC",
+  "detail": "200 EMA tap at 12:30 UTC",
   "edge": 0,
-  "label": "GBP/CAD SELL (200 EMA tap)",
-  "side": "SELL",
+  "label": "GBP/CHF BUY (200 EMA tap)",
+  "side": "BUY",
   "url": "https://www.oanda.com/",
   "votes": {
    "Doubt": [
     false,
-    "no fresh supply zone at the EMA: just a line, no confluence"
+    "no fresh demand zone at the EMA: just a line, no confluence"
    ],
    "Momentum": [
     false,
-    "no two convincing candles in a row (got weak, weak, strong): possible fake-out"
+    "no two convincing candles in a row (got weak, weak, weak): possible fake-out"
    ],
    "Risk": [
     null,
@@ -17214,14 +17218,14 @@
    ],
    "The Quant": [
     true,
-    "200 EMA is falling 1.1 ATR over 50 candles (needs 1)"
+    "200 EMA is rising 1.4 ATR over 50 candles (needs 1)"
    ],
    "Time": [
     true,
-    "candle high tapped the 200 EMA at 1.88692"
+    "candle low tapped the 200 EMA at 1.10721"
    ]
   },
-  "when": 1794821426.107313
+  "when": 1794835215.661931
  },
  "last_weekly": "2026-11-13",
  "lb_done": {
@@ -21386,7 +21390,7 @@
    },
    "rsi": 42.44932770334206,
    "setup": "pullback",
-   "spread_pips": 1.7999999999995797,
+   "spread_pips": 1.7000000000000348,
    "tradeable": true,
    "trend": -1
   },
@@ -21411,7 +21415,7 @@
    },
    "rsi": 32.99098164723044,
    "setup": null,
-   "spread_pips": 2.2999999999996135,
+   "spread_pips": 2.200000000000557,
    "tradeable": true,
    "trend": -1
   },
@@ -21431,13 +21435,13 @@
     "session": true,
     "tf": "H1",
     "waiting": [
-     "spread is 30% of ATR",
+     "spread is 29% of ATR",
      "MACD against us (down)"
     ]
    },
    "rsi": 46.01289075373316,
    "setup": "pullback",
-   "spread_pips": 3.6999999999998145,
+   "spread_pips": 3.5999999999991594,
    "tradeable": true,
    "trend": -1
   },
@@ -21463,7 +21467,7 @@
    },
    "rsi": 37.185508424575794,
    "setup": null,
-   "spread_pips": 1.2999999999996348,
+   "spread_pips": 1.40000000000029,
    "tradeable": true,
    "trend": -1
   },
@@ -21509,12 +21513,12 @@
     "tf": "H1",
     "waiting": [
      "a pullback to the trend line or a fresh crossover",
-     "spread is 30% of ATR"
+     "spread is 31% of ATR"
     ]
    },
    "rsi": 31.483531952732548,
    "setup": null,
-   "spread_pips": 3.7999999999996703,
+   "spread_pips": 3.900000000000148,
    "tradeable": true,
    "trend": -1
   },
@@ -21540,7 +21544,7 @@
    },
    "rsi": 37.936170646771444,
    "setup": null,
-   "spread_pips": 3.6000000000001364,
+   "spread_pips": 3.900000000001569,
    "tradeable": true,
    "trend": -1
   },
@@ -21560,12 +21564,12 @@
     "session": true,
     "tf": "H1",
     "waiting": [
-     "spread is 28% of ATR"
+     "spread is 27% of ATR"
     ]
    },
    "rsi": 55.577954784564234,
    "setup": "pullback",
-   "spread_pips": 5.5000000000005045,
+   "spread_pips": 5.399999999999849,
    "tradeable": true,
    "trend": 1
   },
@@ -21611,12 +21615,12 @@
     "session": true,
     "tf": "M15",
     "waiting": [
-     "spread is 59% of ATR"
+     "a pullback to the trend line or a fresh crossover"
     ]
    },
    "rsi": 44.36930067521282,
    "setup": null,
-   "spread_pips": 2.300000000000635,
+   "spread_pips": 1.9000000000002348,
    "tradeable": true,
    "trend": 1
   },
@@ -21666,7 +21670,7 @@
    },
    "rsi": 27.501474047865187,
    "setup": null,
-   "spread_pips": 2.7000000000015234,
+   "spread_pips": 2.899999999999636,
    "tradeable": true,
    "trend": -1
   },
@@ -21692,7 +21696,7 @@
    },
    "rsi": 54.06499335354998,
    "setup": "pullback",
-   "spread_pips": 6.399999999999739,
+   "spread_pips": 6.499999999998174,
    "tradeable": true,
    "trend": 1
   },
@@ -21718,7 +21722,7 @@
    },
    "rsi": 40.66337720858022,
    "setup": null,
-   "spread_pips": 1.4999999999987246,
+   "spread_pips": 1.500000000000945,
    "tradeable": true,
    "trend": -1
   },
@@ -21743,7 +21747,7 @@
    },
    "rsi": 57.12665961871367,
    "setup": "pullback",
-   "spread_pips": 5.300000000001415,
+   "spread_pips": 4.799999999998139,
    "tradeable": true,
    "trend": 1
   },
@@ -21769,7 +21773,7 @@
    },
    "rsi": 51.591031495036596,
    "setup": null,
-   "spread_pips": 4.8000000000003595,
+   "spread_pips": 4.900000000001015,
    "tradeable": true,
    "trend": -1
   },
@@ -21785,17 +21789,17 @@
     "dir": -1,
     "in_trade": false,
     "of": 6,
-    "passed": 4,
+    "passed": 3,
     "session": true,
     "tf": "M15",
     "waiting": [
-     "ADX 14 (needs 18)",
-     "spread is 70% of ATR"
+     "a pullback to the trend line or a fresh crossover",
+     "ADX 14 (needs 18)"
     ]
    },
    "rsi": 46.786765425743944,
    "setup": null,
-   "spread_pips": 3.8999999999989043,
+   "spread_pips": 3.9999999999995595,
    "tradeable": true,
    "trend": 1
   },
@@ -21820,7 +21824,7 @@
    },
    "rsi": 31.883968012439524,
    "setup": null,
-   "spread_pips": 3.700000000000614,
+   "spread_pips": 3.3999999999991815,
    "tradeable": true,
    "trend": -1
   },
@@ -21841,12 +21845,12 @@
     "tf": "H1",
     "waiting": [
      "ADX 9 (needs 18)",
-     "spread is 49% of ATR"
+     "spread is 51% of ATR"
     ]
    },
    "rsi": 56.54426501678814,
    "setup": "pullback",
-   "spread_pips": 11.000000000001009,
+   "spread_pips": 11.40000000000363,
    "tradeable": true,
    "trend": 1
   },
@@ -21871,7 +21875,7 @@
    },
    "rsi": 43.318077052512216,
    "setup": null,
-   "spread_pips": 1.7999999999984695,
+   "spread_pips": 1.900000000001345,
    "tradeable": true,
    "trend": -1
   },
@@ -21923,7 +21927,7 @@
    },
    "rsi": 43.07667552914986,
    "setup": null,
-   "spread_pips": 3.5999999999997145,
+   "spread_pips": 3.6000000000002697,
    "tradeable": true,
    "trend": 1
   },
@@ -21944,12 +21948,12 @@
     "tf": "H1",
     "waiting": [
      "a pullback to the trend line or a fresh crossover",
-     "spread is 29% of ATR"
+     "spread is 30% of ATR"
     ]
    },
    "rsi": 25.905803467288663,
    "setup": null,
-   "spread_pips": 3.50000000000108,
+   "spread_pips": 3.6000000000001364,
    "tradeable": true,
    "trend": -1
   },
@@ -21975,7 +21979,7 @@
    },
    "rsi": 38.07092156949067,
    "setup": null,
-   "spread_pips": 2.4000000000001798,
+   "spread_pips": 2.3999999999990695,
    "tradeable": true,
    "trend": -1
   },
@@ -22001,7 +22005,7 @@
    },
    "rsi": 66.56134531264152,
    "setup": null,
-   "spread_pips": 1.7000000000000348,
+   "spread_pips": 1.80000000000069,
    "tradeable": true,
    "trend": 1
   },
@@ -22027,7 +22031,7 @@
    },
    "rsi": 53.12123987785216,
    "setup": null,
-   "spread_pips": 1.5999999999993797,
+   "spread_pips": 1.40000000000029,
    "tradeable": true,
    "trend": 1
   },
@@ -22050,7 +22054,7 @@
    },
    "rsi": 40.688344304489476,
    "setup": "pullback",
-   "spread_pips": 1.300000000000523,
+   "spread_pips": 1.4999999999986358,
    "tradeable": true,
    "trend": -1
   }
@@ -23454,7 +23458,7 @@
      "entry": 107.645,
      "hs": 0.012000000000000455,
      "last_ts": 1794834900,
-     "now_r": 1.22,
+     "now_r": 0.92,
      "risk": 0.15257142857142625,
      "stop": 107.49242857142858,
      "t": "2026-11-16T05:45:00",
@@ -25453,23 +25457,23 @@
   "AUD_CAD": "2026-11-16T13:00:00",
   "AUD_CHF": "2026-11-16T13:00:00",
   "AUD_JPY": "2026-11-16T13:00:00",
-  "AUD_NZD": "2026-11-16T12:45:00",
+  "AUD_NZD": "2026-11-16T13:00:00",
   "AUD_USD": "2026-11-16T13:00:00",
   "CAD_CHF": "2026-11-16T13:00:00",
   "CAD_JPY": "2026-11-16T13:00:00",
   "CHF_JPY": "2026-11-16T13:00:00",
-  "EUR_AUD": "2026-11-16T12:45:00",
-  "EUR_CAD": "2026-11-16T12:45:00",
-  "EUR_CHF": "2026-11-16T12:45:00",
+  "EUR_AUD": "2026-11-16T13:00:00",
+  "EUR_CAD": "2026-11-16T13:00:00",
+  "EUR_CHF": "2026-11-16T13:00:00",
   "EUR_GBP": "2026-11-16T13:00:00",
   "EUR_JPY": "2026-11-16T13:00:00",
-  "EUR_NZD": "2026-11-16T12:45:00",
+  "EUR_NZD": "2026-11-16T13:00:00",
   "EUR_USD": "2026-11-16T13:00:00",
-  "GBP_AUD": "2026-11-16T12:45:00",
-  "GBP_CAD": "2026-11-16T12:45:00",
-  "GBP_CHF": "2026-11-16T12:45:00",
+  "GBP_AUD": "2026-11-16T13:00:00",
+  "GBP_CAD": "2026-11-16T13:00:00",
+  "GBP_CHF": "2026-11-16T13:00:00",
   "GBP_JPY": "2026-11-16T13:00:00",
-  "GBP_NZD": "2026-11-16T12:45:00",
+  "GBP_NZD": "2026-11-16T13:00:00",
   "GBP_USD": "2026-11-16T13:00:00",
   "NZD_CAD": "2026-11-16T13:00:00",
   "NZD_CHF": "2026-11-16T13:00:00",
